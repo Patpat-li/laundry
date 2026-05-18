@@ -77,6 +77,7 @@ def main(page: ft.Page):
     page.window_width = 1300
     page.window_height = 900
     page.padding = 0
+    page.window.icon = "D:\\IM_systemProject\\myicon.ico"  # ← add this line
 
     page.theme = ft.Theme(
         color_scheme_seed=ft.Colors.INDIGO,
@@ -311,7 +312,7 @@ def main(page: ft.Page):
             padding=ft.Padding(left=10, right=10, top=4, bottom=4),
             border_radius=20,
             bgcolor=color + "22",
-            border=ft.Border.all(1, color + "44"),
+            border=ft.Border(left=ft.BorderSide(1, color + "44"), top=ft.BorderSide(1, color + "44"), right=ft.BorderSide(1, color + "44"), bottom=ft.BorderSide(1, color + "44")),
         )
 
     def icon_btn(ico, color, tooltip, on_click):
@@ -367,7 +368,7 @@ def main(page: ft.Page):
                 padding=ft.Padding(left=12, right=12, top=10, bottom=10),
                 border_radius=10,
                 bgcolor=C_ACCENT + "22" if is_active else "transparent",
-                border=ft.Border.all(1, C_ACCENT + "44") if is_active else ft.Border.all(0, "transparent"),
+                border=ft.Border(left=ft.BorderSide(1, C_ACCENT + "44"), top=ft.BorderSide(1, C_ACCENT + "44"), right=ft.BorderSide(1, C_ACCENT + "44"), bottom=ft.BorderSide(1, C_ACCENT + "44")) if is_active else ft.Border(left=ft.BorderSide(0, "transparent"), top=ft.BorderSide(0, "transparent"), right=ft.BorderSide(0, "transparent"), bottom=ft.BorderSide(0, "transparent")),
                 content=ft.Row([
                     ft.Icon(ico, color=C_ACCENT if is_active else C_MUTED, size=18),
                     ft.Text(label, color=C_ACCENT if is_active else C_MUTED,
@@ -391,7 +392,7 @@ def main(page: ft.Page):
                 is_active = key == active_key
                 ico, lbl = configs[key]
                 container.bgcolor = C_ACCENT + "22" if is_active else "transparent"
-                container.border  = ft.Border.all(1, C_ACCENT + "44") if is_active else ft.Border.all(0, "transparent")
+                container.border  = ft.Border(left=ft.BorderSide(1, C_ACCENT + "44"), top=ft.BorderSide(1, C_ACCENT + "44"), right=ft.BorderSide(1, C_ACCENT + "44"), bottom=ft.BorderSide(1, C_ACCENT + "44")) if is_active else ft.Border(left=ft.BorderSide(0, "transparent"), top=ft.BorderSide(0, "transparent"), right=ft.BorderSide(0, "transparent"), bottom=ft.BorderSide(0, "transparent"))
                 container.content.controls[0].color = C_ACCENT if is_active else C_MUTED
                 container.content.controls[1].color = C_ACCENT if is_active else C_MUTED
                 container.content.controls[1].weight = "bold" if is_active else "normal"
@@ -403,7 +404,7 @@ def main(page: ft.Page):
             return ft.Container(
                 expand=1, padding=22,
                 bgcolor=C_SURFACE, border_radius=16,
-                border=ft.Border.all(1, C_BORDER),
+                border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                 content=ft.Row([
                     ft.Container(
                         width=48, height=48, border_radius=12,
@@ -460,6 +461,145 @@ def main(page: ft.Page):
 
         dash_table = ft.Column()
 
+        # ── NOTIFICATION SYSTEM ───────────────────────────────────────────────
+        PROFIT_LOW_THRESHOLD = 1000.0   # ₱ — adjust as needed
+        notif_badge = ft.Text("0", size=9, color=C_WHITE, weight="bold")
+        notif_badge_container = ft.Container(
+            content=notif_badge,
+            bgcolor=C_RED,
+            border_radius=10,
+            padding=ft.Padding(left=5, right=5, top=1, bottom=1),
+            visible=False,
+            offset=ft.Offset(-0.3, -0.7),
+        )
+
+        def get_notifications():
+            """Return list of (icon, color, title, body) notification tuples."""
+            notes = []
+            try:
+                conn = get_connection()
+                cur  = conn.cursor()
+
+                # 1) Low-profit check
+                cur.execute("SELECT SUM(total) FROM orders WHERE status='Done'")
+                earned = cur.fetchone()[0] or 0.0
+                if earned < PROFIT_LOW_THRESHOLD:
+                    notes.append((
+                        ft.Icons.TRENDING_DOWN_ROUNDED,
+                        C_RED,
+                        "Low Revenue Alert",
+                        f"Total completed revenue is ₱{earned:,.2f} — below the ₱{PROFIT_LOW_THRESHOLD:,.2f} threshold.",
+                    ))
+
+                # 2) Today's pick-up schedules
+                today = datetime.datetime.now().strftime("%Y-%m-%d")
+                cur.execute(
+                    "SELECT id, name, service FROM orders WHERE pickup_date=%s AND status='Pending'",
+                    (today,)
+                )
+                pickups = cur.fetchall()
+                for oid, cname, svc in pickups:
+                    notes.append((
+                        ft.Icons.LOCAL_SHIPPING_OUTLINED,
+                        C_ORANGE,
+                        "Pick-up Today",
+                        f"Order #{oid} — {cname} ({svc}) is scheduled for pick-up today.",
+                    ))
+
+                cur.close(); conn.close()
+            except mysql.connector.Error:
+                pass
+            return notes
+
+        def show_notifications(e):
+            notes = get_notifications()
+
+            if not notes:
+                items = [ft.Row([
+                    ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, color=C_GREEN, size=20),
+                    ft.Text("No notifications right now. All good!", color=C_MUTED, size=13),
+                ], spacing=10)]
+            else:
+                items = []
+                for ico, col, title, body in notes:
+                    items.append(
+                        ft.Container(
+                            padding=ft.Padding(left=14, right=14, top=12, bottom=12),
+                            bgcolor=col + "11",
+                            border_radius=10,
+                            border=ft.Border(left=ft.BorderSide(1, col + "33"), top=ft.BorderSide(1, col + "33"), right=ft.BorderSide(1, col + "33"), bottom=ft.BorderSide(1, col + "33")),
+                            content=ft.Row([
+                                ft.Container(
+                                    width=36, height=36, border_radius=8,
+                                    bgcolor=col + "22",
+                                    content=ft.Icon(ico, color=col, size=18),
+                                    alignment=ft.Alignment(0, 0)
+                                ),
+                                ft.Column([
+                                    ft.Text(title, size=13, color=C_TEXT, weight="bold"),
+                                    ft.Text(body,  size=12, color=C_MUTED),
+                                ], spacing=3, tight=True, expand=True)
+                            ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.START)
+                        )
+                    )
+
+            def close_dlg(e):
+                dlg.open = False
+                page.update()
+
+            dlg = ft.AlertDialog(
+                modal=False,
+                bgcolor=C_SURFACE,
+                title=ft.Row([
+                    ft.Icon(ft.Icons.NOTIFICATIONS_OUTLINED, color=C_ACCENT, size=22),
+                    ft.Text("Notifications", color=C_TEXT, weight="bold", size=17, expand=True),
+                    ft.IconButton(
+                        ft.Icons.CLOSE_ROUNDED, icon_color=C_MUTED, icon_size=18,
+                        on_click=close_dlg,
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+                    ),
+                ], spacing=10),
+                content=ft.Container(
+                    width=420,
+                    content=ft.Column(items, spacing=10, scroll=ft.ScrollMode.ADAPTIVE),
+                ),
+                actions=[
+                    ft.TextButton(
+                        "Close", on_click=close_dlg,
+                        style=ft.ButtonStyle(color=C_MUTED)
+                    )
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
+
+        def update_notif_badge():
+            notes = get_notifications()
+            count = len(notes)
+            notif_badge.value = str(count)
+            notif_badge_container.visible = count > 0
+            notif_badge_container.bgcolor = C_RED if any(
+                "Low Revenue" in n[2] for n in notes
+            ) else C_ORANGE
+
+        notif_bell_btn = ft.Stack([
+            ft.IconButton(
+                icon=ft.Icons.NOTIFICATIONS_OUTLINED,
+                icon_color=C_MUTED,
+                icon_size=22,
+                tooltip="Notifications",
+                on_click=show_notifications,
+                style=ft.ButtonStyle(
+                    bgcolor={ft.ControlState.HOVERED: C_ACCENT + "22"},
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                )
+            ),
+            notif_badge_container,
+        ])
+        # ─────────────────────────────────────────────────────────────────────
+
         def refresh_dash():
             try:
                 conn = get_connection()
@@ -476,64 +616,90 @@ def main(page: ft.Page):
                 stat_income.value  = f"₱{inc or 0:,.2f}"
 
                 cur.execute("SELECT id,name,service,weight,total,status,date_created,pickup_date FROM orders ORDER BY id DESC")
-                rows = []
+                cards = []
                 today = datetime.datetime.now().strftime("%Y-%m-%d")
                 for row in cur.fetchall():
                     oid, name_v, svc_v, wt_v, tot_v, stat_v, date_v, pick_v = row
-                    is_done = stat_v == "Done"
+                    is_done      = stat_v == "Done"
                     pickup_str   = pick_v if pick_v else "—"
                     pickup_color = C_RED if pick_v == today and not is_done else C_MUTED
-                    actions = ft.Row([
-                        icon_btn(ft.Icons.TASK_ALT_ROUNDED,       C_GREEN, "Mark as Done",
-                                 lambda e, _id=oid: mark_done(_id)) if not is_done else ft.Container(width=36),
-                        icon_btn(ft.Icons.DELETE_OUTLINE_ROUNDED,  C_RED,   "Delete",
-                                 lambda e, _id=oid: delete_order(_id))
-                    ], spacing=2)
-                    rows.append(ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(f"#{oid}",          color=C_MUTED,   size=12)),
-                        ft.DataCell(ft.Text(date_v or "—",      color=C_MUTED,   size=12)),
-                        ft.DataCell(ft.Text(pickup_str,         color=pickup_color, size=12, weight="bold")),
-                        ft.DataCell(ft.Text(name_v,             color=C_TEXT,    size=13, weight="bold")),
-                        ft.DataCell(ft.Text(f"{wt_v} kg",       color=C_TEXT,    size=12)),
-                        ft.DataCell(ft.Text(svc_v,              color=C_ACCENT,  size=12)),
-                        ft.DataCell(ft.Text(f"₱{tot_v:,.2f}",  color=C_GREEN,   size=12, weight="bold")),
-                        ft.DataCell(badge("Done" if is_done else "Pending", C_GREEN if is_done else C_ORANGE)),
-                        ft.DataCell(actions),
-                    ]))
+                    status_color = C_GREEN if is_done else C_ORANGE
+                    status_label = "Done" if is_done else "Pending"
 
-                col_style = ft.TextStyle(color=C_MUTED, size=11, weight="bold")
-                dash_table.controls.clear()
-                dash_table.controls.append(
-                    ft.Container(
-                        bgcolor=C_SURFACE, border_radius=16,
-                        border=ft.Border.all(1, C_BORDER),
-                        padding=ft.Padding(left=0, right=0, top=0, bottom=8),
-                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                        content=ft.Row([
-                            ft.DataTable(
-                                heading_row_color=C_SURFACE2,
-                                heading_row_height=44,
-                                data_row_min_height=52,
-                                data_row_max_height=52,
-                                divider_thickness=0.5,
-                                border=ft.Border.all(0, "transparent"),
-                                columns=[
-                                    ft.DataColumn(ft.Text("ID",       style=col_style)),
-                                    ft.DataColumn(ft.Text("CREATED",  style=col_style)),
-                                    ft.DataColumn(ft.Text("PICK-UP",  style=col_style)),
-                                    ft.DataColumn(ft.Text("CUSTOMER", style=col_style)),
-                                    ft.DataColumn(ft.Text("WEIGHT",   style=col_style)),
-                                    ft.DataColumn(ft.Text("SERVICE",  style=col_style)),
-                                    ft.DataColumn(ft.Text("TOTAL",    style=col_style)),
-                                    ft.DataColumn(ft.Text("STATUS",   style=col_style)),
-                                    ft.DataColumn(ft.Text("ACTIONS",  style=col_style)),
-                                ],
-                                rows=rows,
-                            )
-                        ], scroll=ft.ScrollMode.ALWAYS)
+                    action_btns = ft.Row([
+                        icon_btn(ft.Icons.TASK_ALT_ROUNDED, C_GREEN, "Mark as Done",
+                                 lambda e, _id=oid: mark_done(_id)) if not is_done else ft.Container(width=36),
+                        icon_btn(ft.Icons.DELETE_OUTLINE_ROUNDED, C_RED, "Delete",
+                                 lambda e, _id=oid: delete_order(_id)),
+                    ], spacing=2, tight=True)
+
+                    top_row = ft.Row([
+                        ft.Text(f"#{oid}", size=11, color=C_MUTED, weight="bold"),
+                        ft.Text(name_v, size=14, color=C_TEXT, weight="bold", expand=True),
+                        badge(status_label, status_color),
+                        action_btns,
+                    ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+                    def chip(ico, val, col=C_MUTED):
+                        return ft.Row([
+                            ft.Icon(ico, size=13, color=col),
+                            ft.Text(val, size=12, color=col),
+                        ], spacing=4, tight=True)
+
+                    bottom_row = ft.Row([
+                        chip(ft.Icons.CALENDAR_TODAY_OUTLINED,  date_v or "—"),
+                        ft.Container(width=1, height=14, bgcolor=C_BORDER),
+                        chip(ft.Icons.LOCAL_SHIPPING_OUTLINED,  pickup_str, pickup_color),
+                        ft.Container(width=1, height=14, bgcolor=C_BORDER),
+                        chip(ft.Icons.SCALE_OUTLINED,           f"{wt_v} kg"),
+                        ft.Container(width=1, height=14, bgcolor=C_BORDER),
+                        chip(ft.Icons.DRY_CLEANING_OUTLINED,    svc_v, C_ACCENT),
+                        ft.Container(expand=True),
+                        ft.Text(f"₱{tot_v:,.2f}", size=14, color=C_GREEN, weight="bold"),
+                    ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+                    cards.append(
+                        ft.Container(
+                            padding=ft.Padding(left=16, right=12, top=14, bottom=14),
+                            bgcolor=C_SURFACE2 if len(cards) % 2 == 0 else C_SURFACE,
+                            border=ft.Border(bottom=ft.BorderSide(1, C_BORDER)),
+                            content=ft.Column([top_row, bottom_row], spacing=8),
+                        )
                     )
-                )
+
+                dash_table.controls.clear()
+                if not cards:
+                    dash_table.controls.append(
+                        ft.Container(
+                            padding=40, alignment=ft.Alignment(0, 0),
+                            content=ft.Column([
+                                ft.Icon(ft.Icons.INBOX_OUTLINED, size=48, color=C_MUTED, opacity=0.4),
+                                ft.Text("No orders yet", color=C_MUTED, size=14),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8)
+                        )
+                    )
+                else:
+                    hdr_style = ft.TextStyle(color=C_MUTED, size=10, weight="bold", letter_spacing=1.2)
+                    header = ft.Container(
+                        padding=ft.Padding(left=16, right=16, top=10, bottom=10),
+                        bgcolor=C_SURFACE2,
+                        content=ft.Row([
+                            ft.Text("ID",       style=hdr_style, width=36),
+                            ft.Text("CUSTOMER", style=hdr_style, expand=True),
+                            ft.Text("STATUS",   style=hdr_style, width=72),
+                            ft.Text("ACTIONS",  style=hdr_style, width=80),
+                        ], spacing=10),
+                    )
+                    dash_table.controls.append(
+                        ft.Container(
+                            bgcolor=C_SURFACE, border_radius=16,
+                            border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
+                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            content=ft.Column([header, *cards], spacing=0),
+                        )
+                    )
                 cur.close(); conn.close()
+                update_notif_badge()
                 page.update()
             except mysql.connector.Error as err:
                 show_msg(f"DB error: {err}", True)
@@ -617,6 +783,7 @@ def main(page: ft.Page):
                             ft.Text("Dashboard", size=26, weight="bold", color=C_TEXT),
                             ft.Text(datetime.datetime.now().strftime("%d %B %Y"), size=13, color=C_MUTED),
                         ], spacing=2),
+                        notif_bell_btn,
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
 
                     ft.Row([
@@ -628,7 +795,7 @@ def main(page: ft.Page):
 
                     ft.Container(
                         padding=24, bgcolor=C_SURFACE, border_radius=16,
-                        border=ft.Border.all(1, C_BORDER),
+                        border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                         content=ft.Column([
                             section_header("New Transaction"),
                             ft.Container(height=4),
@@ -726,36 +893,66 @@ def main(page: ft.Page):
                     query += " ORDER BY id DESC"
                     cur.execute(query, params)
 
-                    rows = []
+                    cards = []
                     today = datetime.datetime.now().strftime("%Y-%m-%d")
                     for row in cur.fetchall():
                         oid, name_v, svc_v, wt_v, tot_v, stat_v, date_v, pick_v = row
-                        is_done = stat_v == "Done"
+                        is_done      = stat_v == "Done"
                         pickup_str   = pick_v if pick_v else "—"
                         pickup_color = C_RED if pick_v == today and not is_done else C_MUTED
-                        actions = ft.Row([
+                        status_color = C_GREEN if is_done else C_ORANGE
+                        status_label = "Done" if is_done else "Pending"
+
+                        action_btns = ft.Row([
                             icon_btn(ft.Icons.TASK_ALT_ROUNDED, C_GREEN, "Mark as Done",
                                      lambda e, _id=oid: _mark_done_orders(_id)) if not is_done else ft.Container(width=36),
                             icon_btn(ft.Icons.EDIT_OUTLINED, C_ACCENT, "Edit",
-                                     lambda e, _id=oid, _n=name_v, _s=svc_v, _w=wt_v, _p=pick_v: edit_order_dialog(_id, _n, _s, _w, _p)),
+                                     lambda e, _id=oid, _n=name_v, _s=svc_v, _w=wt_v, _p=pick_v:
+                                         edit_order_dialog(_id, _n, _s, _w, _p)),
                             icon_btn(ft.Icons.DELETE_OUTLINE_ROUNDED, C_RED, "Delete",
-                                     lambda e, _id=oid: _delete_order_orders(_id))
-                        ], spacing=2)
-                        rows.append(ft.DataRow(cells=[
-                            ft.DataCell(ft.Text(f"#{oid}",         color=C_MUTED,       size=12)),
-                            ft.DataCell(ft.Text(date_v or "—",     color=C_MUTED,       size=12)),
-                            ft.DataCell(ft.Text(pickup_str,        color=pickup_color,  size=12, weight="bold")),
-                            ft.DataCell(ft.Text(name_v,            color=C_TEXT,        size=13, weight="bold")),
-                            ft.DataCell(ft.Text(f"{wt_v} kg",      color=C_TEXT,        size=12)),
-                            ft.DataCell(ft.Text(svc_v,             color=C_ACCENT,      size=12)),
-                            ft.DataCell(ft.Text(f"₱{tot_v:,.2f}", color=C_GREEN,       size=12, weight="bold")),
-                            ft.DataCell(badge("Done" if is_done else "Pending", C_GREEN if is_done else C_ORANGE)),
-                            ft.DataCell(actions),
-                        ]))
+                                     lambda e, _id=oid: _delete_order_orders(_id)),
+                        ], spacing=2, tight=True)
 
-                    col_style = ft.TextStyle(color=C_MUTED, size=11, weight="bold")
+                        # ── top row: ID · customer · status badge · actions ──
+                        top_row = ft.Row([
+                            ft.Text(f"#{oid}", size=11, color=C_MUTED, weight="bold"),
+                            ft.Text(name_v, size=14, color=C_TEXT, weight="bold", expand=True),
+                            badge(status_label, status_color),
+                            action_btns,
+                        ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+                        # ── bottom row: meta chips ──────────────────────────
+                        def chip(ico, val, col=C_MUTED):
+                            return ft.Row([
+                                ft.Icon(ico, size=13, color=col),
+                                ft.Text(val, size=12, color=col),
+                            ], spacing=4, tight=True)
+
+                        bottom_row = ft.Row([
+                            chip(ft.Icons.CALENDAR_TODAY_OUTLINED,    date_v or "—"),
+                            ft.Container(width=1, height=14, bgcolor=C_BORDER),
+                            chip(ft.Icons.LOCAL_SHIPPING_OUTLINED,    pickup_str, pickup_color),
+                            ft.Container(width=1, height=14, bgcolor=C_BORDER),
+                            chip(ft.Icons.SCALE_OUTLINED,             f"{wt_v} kg"),
+                            ft.Container(width=1, height=14, bgcolor=C_BORDER),
+                            chip(ft.Icons.DRY_CLEANING_OUTLINED,      svc_v, C_ACCENT),
+                            ft.Container(expand=True),
+                            ft.Text(f"₱{tot_v:,.2f}", size=14, color=C_GREEN, weight="bold"),
+                        ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+                        cards.append(
+                            ft.Container(
+                                padding=ft.Padding(left=16, right=12, top=14, bottom=14),
+                                bgcolor=C_SURFACE2 if len(cards) % 2 == 0 else C_SURFACE,
+                                border=ft.Border(
+                                    bottom=ft.BorderSide(1, C_BORDER)
+                                ),
+                                content=ft.Column([top_row, bottom_row], spacing=8),
+                            )
+                        )
+
                     orders_table.controls.clear()
-                    if not rows:
+                    if not cards:
                         orders_table.controls.append(
                             ft.Container(
                                 padding=40, alignment=ft.Alignment(0, 0),
@@ -766,34 +963,25 @@ def main(page: ft.Page):
                             )
                         )
                     else:
+                        # Header bar
+                        hdr_style = ft.TextStyle(color=C_MUTED, size=10, weight="bold",
+                                                  letter_spacing=1.2)
+                        header = ft.Container(
+                            padding=ft.Padding(left=16, right=16, top=10, bottom=10),
+                            bgcolor=C_SURFACE2,
+                            content=ft.Row([
+                                ft.Text("ORDER",    style=hdr_style, expand=False, width=36),
+                                ft.Text("CUSTOMER", style=hdr_style, expand=True),
+                                ft.Text("STATUS",   style=hdr_style, width=72),
+                                ft.Text("ACTIONS",  style=hdr_style, width=108),
+                            ], spacing=10),
+                        )
                         orders_table.controls.append(
                             ft.Container(
                                 bgcolor=C_SURFACE, border_radius=16,
-                                border=ft.Border.all(1, C_BORDER),
-                                padding=ft.Padding(left=0, right=0, top=0, bottom=8),
+                                border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                content=ft.Row([
-                                    ft.DataTable(
-                                        heading_row_color=C_SURFACE2,
-                                        heading_row_height=44,
-                                        data_row_min_height=52,
-                                        data_row_max_height=52,
-                                        divider_thickness=0.5,
-                                        border=ft.Border.all(0, "transparent"),
-                                        columns=[
-                                            ft.DataColumn(ft.Text("ID",       style=col_style)),
-                                            ft.DataColumn(ft.Text("CREATED",  style=col_style)),
-                                            ft.DataColumn(ft.Text("PICK-UP",  style=col_style)),
-                                            ft.DataColumn(ft.Text("CUSTOMER", style=col_style)),
-                                            ft.DataColumn(ft.Text("WEIGHT",   style=col_style)),
-                                            ft.DataColumn(ft.Text("SERVICE",  style=col_style)),
-                                            ft.DataColumn(ft.Text("TOTAL",    style=col_style)),
-                                            ft.DataColumn(ft.Text("STATUS",   style=col_style)),
-                                            ft.DataColumn(ft.Text("ACTIONS",  style=col_style)),
-                                        ],
-                                        rows=rows,
-                                    )
-                                ], scroll=ft.ScrollMode.ALWAYS)
+                                content=ft.Column([header, *cards], spacing=0),
                             )
                         )
                     cur.close(); conn.close()
@@ -971,7 +1159,7 @@ def main(page: ft.Page):
                             cust_list.controls.append(
                                 ft.Container(
                                     bgcolor=C_SURFACE, border_radius=14,
-                                    border=ft.Border.all(1, C_BORDER),
+                                    border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                                     padding=ft.Padding(left=20, right=20, top=16, bottom=16),
                                     content=ft.Row([
                                         ft.CircleAvatar(
@@ -1074,7 +1262,7 @@ def main(page: ft.Page):
                     def mini_stat(label, value, color, icon):
                         return ft.Container(
                             expand=1, padding=20, bgcolor=C_SURFACE, border_radius=14,
-                            border=ft.Border.all(1, C_BORDER),
+                            border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                             content=ft.Column([
                                 ft.Row([
                                     ft.Container(
@@ -1116,7 +1304,7 @@ def main(page: ft.Page):
                         report_content.controls.append(
                             ft.Container(
                                 padding=22, bgcolor=C_SURFACE, border_radius=14,
-                                border=ft.Border.all(1, C_BORDER),
+                                border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                                 content=ft.Column([
                                     section_header("Revenue by Service"),
                                     ft.Container(height=4),
@@ -1145,12 +1333,208 @@ def main(page: ft.Page):
                         report_content.controls.append(
                             ft.Container(
                                 padding=22, bgcolor=C_SURFACE, border_radius=14,
-                                border=ft.Border.all(1, C_BORDER),
+                                border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                                 content=ft.Column([
                                     section_header("Top 5 Customers", C_ACCENT2),
                                     ft.Container(height=4),
                                     *cust_rows,
                                 ], spacing=8)
+                            )
+                        )
+
+                    # ── PROFIT DISTRIBUTION CHART ────────────────────────────────────────
+                    # Fetch per-customer revenue for the selected period
+                    conn2 = get_connection()
+                    cur2  = conn2.cursor()
+                    if date_param:
+                        cur2.execute(
+                            f"SELECT name, COALESCE(SUM(total),0) FROM orders "
+                            f"WHERE {date_filter} GROUP BY name",
+                            (date_param,)
+                        )
+                    else:
+                        cur2.execute(
+                            "SELECT name, COALESCE(SUM(total),0) FROM orders GROUP BY name"
+                        )
+                    cust_profit_rows = cur2.fetchall()
+                    cur2.close(); conn2.close()
+
+                    if cust_profit_rows:
+                        all_revenues   = [r for _, r in cust_profit_rows]
+                        avg_rev        = sum(all_revenues) / len(all_revenues) if all_revenues else 0
+
+                        high_customers = [(n, r) for n, r in cust_profit_rows if r >= avg_rev]
+                        low_customers  = [(n, r) for n, r in cust_profit_rows if r <  avg_rev]
+                        high_rev       = sum(r for _, r in high_customers)
+                        low_rev        = sum(r for _, r in low_customers)
+                        total_pie_rev  = high_rev + low_rev or 1
+
+                        high_pct = high_rev / total_pie_rev
+                        low_pct  = low_rev  / total_pie_rev
+
+                        BAR_W = 420   # total width of the stacked bar
+
+                        def _legend_dot(color):
+                            return ft.Container(
+                                width=12, height=12, border_radius=6, bgcolor=color
+                            )
+
+                        def _legend_row(lbl, count, revenue, pct, color):
+                            return ft.Row([
+                                _legend_dot(color),
+                                ft.Column([
+                                    ft.Text(lbl, size=13, color=C_TEXT, weight="bold"),
+                                    ft.Text(
+                                        f"{count} customer{'s' if count != 1 else ''} · ₱{revenue:,.2f}",
+                                        size=11, color=C_MUTED,
+                                    ),
+                                ], spacing=1, tight=True, expand=True),
+                                ft.Text(f"{pct*100:.1f}%", size=15, weight="bold", color=color),
+                            ], spacing=10)
+
+                        # ── stacked horizontal bar ──────────────────────────────────────
+                        high_w = max(int(BAR_W * high_pct), 4 if high_pct > 0 else 0)
+                        low_w  = max(int(BAR_W * low_pct),  4 if low_pct  > 0 else 0)
+
+                        stacked_bar = ft.Row(
+                            spacing=0,
+                            controls=[
+                                ft.Container(
+                                    width=high_w, height=28,
+                                    bgcolor=C_GREEN,
+                                    border_radius=ft.BorderRadius(
+                                        top_left=8, bottom_left=8,
+                                        top_right=0, bottom_right=0
+                                    ) if low_w > 0 else ft.BorderRadius(top_left=8, top_right=8, bottom_left=8, bottom_right=8),
+                                    tooltip=f"High Profit {high_pct*100:.1f}%",
+                                ),
+                                ft.Container(
+                                    width=low_w, height=28,
+                                    bgcolor=C_ORANGE,
+                                    border_radius=ft.BorderRadius(
+                                        top_left=0, bottom_left=0,
+                                        top_right=8, bottom_right=8
+                                    ) if high_w > 0 else ft.BorderRadius(top_left=8, top_right=8, bottom_left=8, bottom_right=8),
+                                    tooltip=f"Low Profit {low_pct*100:.1f}%",
+                                ),
+                            ]
+                        )
+
+                        # ── per-customer mini bars ──────────────────────────────────────
+                        def _cust_bar(name, rev, color, max_r):
+                            bar_pct = rev / max_r if max_r else 0
+                            return ft.Column([
+                                ft.Row([
+                                    ft.Container(
+                                        width=8, height=8, border_radius=4, bgcolor=color
+                                    ),
+                                    ft.Text(name, size=11, color=C_TEXT, expand=True),
+                                    ft.Text(f"₱{rev:,.0f}", size=11, color=color, weight="bold"),
+                                ], spacing=6),
+                                ft.Container(
+                                    height=6, border_radius=3,
+                                    bgcolor=C_SURFACE2,
+                                    content=ft.Row(
+                                        spacing=0,
+                                        controls=[
+                                            ft.Container(
+                                                width=max(int(220 * bar_pct), 4),
+                                                height=6, bgcolor=color,
+                                                border_radius=3,
+                                            )
+                                        ]
+                                    )
+                                ),
+                            ], spacing=3)
+
+                        max_all = max(all_revenues) or 1
+
+                        high_bars = ft.Column(
+                            spacing=8,
+                            controls=[_cust_bar(n, r, C_GREEN, max_all)
+                                      for n, r in sorted(high_customers, key=lambda x: -x[1])[:5]]
+                        )
+                        low_bars = ft.Column(
+                            spacing=8,
+                            controls=[_cust_bar(n, r, C_ORANGE, max_all)
+                                      for n, r in sorted(low_customers, key=lambda x: -x[1])[:5]]
+                        )
+
+                        report_content.controls.append(
+                            ft.Container(
+                                padding=22, bgcolor=C_SURFACE, border_radius=14,
+                                border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
+                                content=ft.Column([
+                                    section_header("Profit Distribution by Customer", C_GREEN),
+                                    ft.Text(
+                                        f"Avg spend ₱{avg_rev:,.2f} · customers above = High Profit · {label}",
+                                        size=11, color=C_MUTED, italic=True,
+                                    ),
+                                    ft.Container(height=10),
+
+                                    # ── stacked bar visual ──
+                                    stacked_bar,
+                                    ft.Row([
+                                        ft.Text(f"High {high_pct*100:.0f}%", size=10,
+                                                color=C_GREEN, weight="bold"),
+                                        ft.Container(expand=True),
+                                        ft.Text(f"Low {low_pct*100:.0f}%", size=10,
+                                                color=C_ORANGE, weight="bold"),
+                                    ]),
+
+                                    ft.Container(height=10),
+
+                                    # ── legend summary row ──
+                                    _legend_row("High Profit", len(high_customers),
+                                                high_rev, high_pct, C_GREEN),
+                                    ft.Container(height=4),
+                                    _legend_row("Low Profit",  len(low_customers),
+                                                low_rev,  low_pct,  C_ORANGE),
+
+                                    ft.Container(height=14),
+
+                                    # ── detailed breakdown side by side ──
+                                    ft.Row([
+                                        ft.Container(
+                                            expand=True,
+                                            padding=ft.Padding(left=14, right=14, top=12, bottom=12),
+                                            bgcolor=C_SURFACE2, border_radius=10,
+                                            content=ft.Column([
+                                                ft.Row([
+                                                    ft.Container(
+                                                        width=8, height=8,
+                                                        border_radius=4, bgcolor=C_GREEN
+                                                    ),
+                                                    ft.Text("High Profit Customers",
+                                                            size=11, color=C_GREEN, weight="bold"),
+                                                ], spacing=6),
+                                                ft.Container(height=6),
+                                                high_bars if high_customers else
+                                                    ft.Text("None", size=11, color=C_MUTED),
+                                            ], spacing=0)
+                                        ),
+                                        ft.Container(width=12),
+                                        ft.Container(
+                                            expand=True,
+                                            padding=ft.Padding(left=14, right=14, top=12, bottom=12),
+                                            bgcolor=C_SURFACE2, border_radius=10,
+                                            content=ft.Column([
+                                                ft.Row([
+                                                    ft.Container(
+                                                        width=8, height=8,
+                                                        border_radius=4, bgcolor=C_ORANGE
+                                                    ),
+                                                    ft.Text("Low Profit Customers",
+                                                            size=11, color=C_ORANGE, weight="bold"),
+                                                ], spacing=6),
+                                                ft.Container(height=6),
+                                                low_bars if low_customers else
+                                                    ft.Text("None", size=11, color=C_MUTED),
+                                            ], spacing=0)
+                                        ),
+                                    ], spacing=0),
+
+                                ], spacing=6)
                             )
                         )
 
@@ -1171,7 +1555,7 @@ def main(page: ft.Page):
                         report_content.controls.append(
                             ft.Container(
                                 padding=22, bgcolor=C_SURFACE, border_radius=14,
-                                border=ft.Border.all(1, C_BORDER),
+                                border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                                 content=ft.Column([
                                     section_header("Daily Revenue (Recent)", C_GREEN),
                                     ft.Container(height=4),
@@ -1412,7 +1796,7 @@ def main(page: ft.Page):
                             padding=ft.Padding(left=10, right=10, top=4, bottom=4),
                             border_radius=20,
                             bgcolor=C_ORANGE + "22",
-                            border=ft.Border.all(1, C_ORANGE + "44"),
+                            border=ft.Border(left=ft.BorderSide(1, C_ORANGE + "44"), top=ft.BorderSide(1, C_ORANGE + "44"), right=ft.BorderSide(1, C_ORANGE + "44"), bottom=ft.BorderSide(1, C_ORANGE + "44")),
                             content=ft.Row([
                                 ft.Icon(ft.Icons.LOCK_OUTLINE_ROUNDED, color=C_ORANGE, size=13),
                                 ft.Text("Admin only", size=11, color=C_ORANGE, weight="bold"),
@@ -1430,7 +1814,7 @@ def main(page: ft.Page):
             sections = [
                 ft.Container(
                     padding=24, bgcolor=C_SURFACE, border_radius=14,
-                    border=ft.Border.all(1, C_BORDER),
+                    border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                     content=ft.Column([
                         section_header("Account Info"),
                         ft.Container(height=4),
@@ -1452,7 +1836,7 @@ def main(page: ft.Page):
 
                 ft.Container(
                     padding=24, bgcolor=C_SURFACE, border_radius=14,
-                    border=ft.Border.all(1, C_BORDER),
+                    border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                     content=ft.Column([
                         section_header("Change Password"),
                         ft.Container(height=4),
@@ -1471,7 +1855,7 @@ def main(page: ft.Page):
 
                 ft.Container(
                     padding=24, bgcolor=C_SURFACE, border_radius=14,
-                    border=ft.Border.all(1, C_BORDER),
+                    border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                     content=ft.Column(pricing_controls, spacing=14)
                 ),
             ]
@@ -1480,7 +1864,7 @@ def main(page: ft.Page):
                 sections.append(
                     ft.Container(
                         padding=24, bgcolor=C_SURFACE, border_radius=14,
-                        border=ft.Border.all(1, C_BORDER),
+                        border=ft.Border(left=ft.BorderSide(1, C_BORDER), top=ft.BorderSide(1, C_BORDER), right=ft.BorderSide(1, C_BORDER), bottom=ft.BorderSide(1, C_BORDER)),
                         content=ft.Column([
                             ft.Row([
                                 section_header("User Management", C_RED),
@@ -1615,4 +1999,4 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.app(target=main, assets_dir="assets")
+    ft.app(main, assets_dir="assets")
