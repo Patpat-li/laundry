@@ -1,162 +1,178 @@
 import streamlit as st
-import sqlite3
+import mysql.connector
 import hashlib
 import datetime
 
 # ─── PAGE CONFIG ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="LaundroSoft POS",
-    page_icon="🧺",
+    page_icon="🫧",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ─── DATABASE ─────────────────────────────────────────────────────────────────
-DB_PATH = "laundrosoft.db"
+# ─── DATABASE CONFIG ──────────────────────────────────────────────────────────
+DB_CONFIG = {
+    "host": "localhost",
+    "user": "root",
+    "password": "2hrze4hr",
+    "database": "myLaundry"
+}
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        role TEXT NOT NULL)""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL, service TEXT NOT NULL,
-        weight REAL NOT NULL, total REAL NOT NULL,
-        status TEXT NOT NULL, date_created TEXT, pickup_date TEXT)""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS pricing (
-        service TEXT PRIMARY KEY, rate REAL NOT NULL)""")
-    conn.commit()
-    cur.execute("INSERT OR IGNORE INTO users (username,password,role) VALUES (?,?,?)",
-                ("admin", hash_password("admin123"), "Admin"))
-    for svc, rate in [("Wash",50.0),("Wash & Dry",75.0),("Full Service",95.0)]:
-        cur.execute("INSERT OR IGNORE INTO pricing (service,rate) VALUES (?,?)",(svc,rate))
-    conn.commit(); cur.close(); conn.close()
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                role VARCHAR(50) NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS orders (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                service VARCHAR(100) NOT NULL,
+                weight FLOAT NOT NULL,
+                total FLOAT NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                date_created VARCHAR(20),
+                pickup_date VARCHAR(20)
+            )
+        """)
+        conn.commit()
+        try:
+            cursor.execute(
+                "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
+                ("admin", hash_password("admin123"), "Admin")
+            )
+            conn.commit()
+        except mysql.connector.IntegrityError:
+            pass
+        cursor.close()
+        conn.close()
+        return True
+    except mysql.connector.Error as e:
+        st.error(f"Database connection failed: {e}")
+        return False
 
-def hash_password(pw, salt="laundry_secure_123"):
-    return hashlib.sha256((pw+salt).encode()).hexdigest()
+def hash_password(password, salt="laundry_secure_123"):
+    return hashlib.sha256((password + salt).encode()).hexdigest()
 
-def get_rates():
-    conn = get_connection()
-    cur  = conn.cursor()
-    cur.execute("SELECT service,rate FROM pricing")
-    r = {row["service"]: row["rate"] for row in cur.fetchall()}
-    cur.close(); conn.close()
-    return r
-
-# ─── SVG LOGO ─────────────────────────────────────────────────────────────────
-LOGO_SVG = """
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="{w}" height="{h}">
-  <defs>
-    <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#4F7EFF"/>
-      <stop offset="100%" style="stop-color:#7C3AED"/>
-    </linearGradient>
-  </defs>
-  <!-- rounded square bg -->
-  <rect width="48" height="48" rx="12" fill="url(#lg)"/>
-  <!-- washing machine body -->
-  <rect x="9" y="11" width="30" height="28" rx="4" fill="none" stroke="white" stroke-width="2.2"/>
-  <!-- door circle -->
-  <circle cx="24" cy="27" r="8" fill="none" stroke="white" stroke-width="2"/>
-  <!-- inner drum hint -->
-  <circle cx="24" cy="27" r="4.5" fill="none" stroke="white" stroke-width="1.2" stroke-dasharray="2.5 2"/>
-  <!-- top panel line -->
-  <line x1="9" y1="18" x2="39" y2="18" stroke="white" stroke-width="1.8"/>
-  <!-- control dots -->
-  <circle cx="14" cy="14.5" r="1.8" fill="white"/>
-  <circle cx="19.5" cy="14.5" r="1.8" fill="white" opacity="0.6"/>
-  <!-- water waves inside door -->
-  <path d="M18 27.5 Q21 25.5 24 27.5 Q27 29.5 30 27.5" fill="none" stroke="white" stroke-width="1.3" stroke-linecap="round"/>
-</svg>
-"""
-
-def logo(w=38, h=38):
-    return LOGO_SVG.format(w=w, h=h)
+# ─── SESSION STATE ────────────────────────────────────────────────────────────
+def init_session():
+    defaults = {
+        "logged_in": False,
+        "username": "",
+        "role": "",
+        "view": "dashboard",
+        "auth_mode": "login",
+        "ord_filter": "All",
+        "rpt_period": "today",
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 def inject_css():
     st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&family=Space+Mono:wght@400;700&display=swap');
 
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
-        background-color: #0B0E1A !important;
-        color: #E8EAF6;
-        font-family: 'Inter', sans-serif !important;
+    :root {
+        --bg:        #080B12;
+        --surf:      #0E1220;
+        --surf2:     #141828;
+        --surf3:     #1A1F32;
+        --border:    #1E2540;
+        --accent:    #4B8BFF;
+        --accent2:   #8B5CF6;
+        --green:     #10D9A0;
+        --orange:    #F5A623;
+        --red:       #F04A5E;
+        --text:      #DDE3F5;
+        --muted:     #6B7599;
+        --dim:       #3A4060;
     }
-    /* hide streamlit branding */
+
+    html, body,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] {
+        background-color: var(--bg) !important;
+        font-family: 'DM Sans', sans-serif !important;
+        color: var(--text);
+    }
+
     #MainMenu, footer, header { visibility: hidden; }
-    [data-testid="stDecoration"] { display:none; }
+    [data-testid="stDecoration"] { display: none; }
 
     /* ── Sidebar ── */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #111527 0%, #0D1020 100%) !important;
-        border-right: 1px solid #1E2340 !important;
+        background: var(--surf) !important;
+        border-right: 1px solid var(--border) !important;
     }
-    [data-testid="stSidebar"] * { font-family: 'Inter', sans-serif !important; }
     [data-testid="stSidebarContent"] { padding: 0 !important; }
+    [data-testid="stSidebar"] * { font-family: 'DM Sans', sans-serif !important; }
 
-    /* ── Sidebar nav buttons ── */
+    /* Nav buttons */
     [data-testid="stSidebar"] .stButton > button {
         background: transparent !important;
-        color: #8892B0 !important;
+        color: var(--muted) !important;
         border: none !important;
         border-radius: 10px !important;
         font-size: 13px !important;
         font-weight: 500 !important;
         text-align: left !important;
         padding: 10px 14px !important;
-        transition: all 0.15s ease !important;
         width: 100% !important;
+        transition: all 0.15s ease !important;
     }
     [data-testid="stSidebar"] .stButton > button:hover {
-        background: rgba(79,126,255,0.12) !important;
-        color: #4F7EFF !important;
+        background: rgba(75,139,255,0.1) !important;
+        color: var(--accent) !important;
     }
 
-    /* ── Main area ── */
+    /* ── Main ── */
     [data-testid="stMain"] .block-container {
-        padding: 2rem 2.5rem 3rem !important;
-        max-width: 1300px !important;
+        padding: 2rem 2.8rem 3rem !important;
+        max-width: 1400px !important;
     }
 
     /* ── Inputs ── */
     input, textarea {
-        background-color: #161929 !important;
-        color: #E8EAF6 !important;
-        border: 1px solid #1E2340 !important;
+        background-color: var(--surf2) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
         border-radius: 10px !important;
-        font-family: 'Inter', sans-serif !important;
+        font-family: 'DM Sans', sans-serif !important;
     }
     input:focus, textarea:focus {
-        border-color: #4F7EFF !important;
-        box-shadow: 0 0 0 3px rgba(79,126,255,0.15) !important;
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 3px rgba(75,139,255,0.12) !important;
     }
     [data-baseweb="select"] > div {
-        background-color: #161929 !important;
-        border: 1px solid #1E2340 !important;
+        background-color: var(--surf2) !important;
+        border: 1px solid var(--border) !important;
         border-radius: 10px !important;
-        color: #E8EAF6 !important;
+        color: var(--text) !important;
     }
     [data-baseweb="popover"] * {
-        background-color: #1A1D2E !important;
-        color: #E8EAF6 !important;
+        background-color: var(--surf3) !important;
+        color: var(--text) !important;
     }
-    label { color: #8892B0 !important; font-size: 12px !important; font-weight: 500 !important; }
+    label { color: var(--muted) !important; font-size: 12px !important; font-weight: 500 !important; }
 
-    /* ── Primary buttons ── */
+    /* ── Buttons ── */
     .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #4F7EFF, #7C3AED) !important;
-        color: white !important;
+        background: linear-gradient(135deg, var(--accent), var(--accent2)) !important;
+        color: #fff !important;
         border: none !important;
         border-radius: 10px !important;
         font-weight: 600 !important;
@@ -164,70 +180,70 @@ def inject_css():
         letter-spacing: 0.3px !important;
         transition: opacity 0.15s !important;
     }
-    .stButton > button[kind="primary"]:hover { opacity: 0.88 !important; }
+    .stButton > button[kind="primary"]:hover { opacity: 0.85 !important; }
     .stButton > button {
         border-radius: 10px !important;
         font-weight: 600 !important;
-        font-family: 'Inter', sans-serif !important;
+        font-family: 'DM Sans', sans-serif !important;
         transition: all 0.15s ease !important;
     }
 
     /* ── Metric cards ── */
     [data-testid="metric-container"] {
-        background: linear-gradient(135deg, #131628, #161929) !important;
-        border: 1px solid #1E2340 !important;
+        background: var(--surf) !important;
+        border: 1px solid var(--border) !important;
         border-radius: 18px !important;
-        padding: 22px !important;
+        padding: 24px !important;
         position: relative;
         overflow: hidden;
     }
-    [data-testid="metric-container"]::before {
+    [data-testid="metric-container"]::after {
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0;
         height: 2px;
-        background: linear-gradient(90deg, #4F7EFF, #7C3AED);
-        border-radius: 18px 18px 0 0;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
     }
     [data-testid="metric-container"] label {
-        color: #8892B0 !important;
+        color: var(--muted) !important;
         font-size: 11px !important;
         font-weight: 600 !important;
-        letter-spacing: 0.8px !important;
+        letter-spacing: 1px !important;
         text-transform: uppercase !important;
     }
     [data-testid="stMetricValue"] {
-        color: #E8EAF6 !important;
-        font-size: 30px !important;
-        font-weight: 800 !important;
+        color: var(--text) !important;
+        font-size: 32px !important;
+        font-weight: 700 !important;
+        font-family: 'Space Mono', monospace !important;
     }
 
     /* ── Cards ── */
     .ls-card {
-        background: linear-gradient(135deg, #131628, #161929);
-        border: 1px solid #1E2340;
-        border-radius: 16px;
-        padding: 20px 24px;
-        margin-bottom: 12px;
-        transition: border-color 0.2s, box-shadow 0.2s;
+        background: var(--surf);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px 22px;
+        margin-bottom: 10px;
+        transition: border-color 0.2s, transform 0.15s;
     }
     .ls-card:hover {
-        border-color: #2E3660;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+        border-color: var(--dim);
+        transform: translateY(-1px);
     }
     .ls-section-box {
-        background: linear-gradient(135deg, #131628, #161929);
-        border: 1px solid #1E2340;
+        background: var(--surf);
+        border: 1px solid var(--border);
         border-radius: 18px;
         padding: 24px 28px;
-        margin-bottom: 20px;
+        margin-bottom: 18px;
     }
 
     /* ── Badges ── */
     .badge-done {
-        background: rgba(34,197,94,0.12);
-        color: #22C55E;
-        border: 1px solid rgba(34,197,94,0.3);
+        background: rgba(16,217,160,0.1);
+        color: var(--green);
+        border: 1px solid rgba(16,217,160,0.25);
         border-radius: 20px;
         padding: 3px 12px;
         font-size: 11px;
@@ -235,211 +251,295 @@ def inject_css():
         letter-spacing: 0.3px;
     }
     .badge-pending {
-        background: rgba(245,158,11,0.12);
-        color: #F59E0B;
-        border: 1px solid rgba(245,158,11,0.3);
+        background: rgba(245,166,35,0.1);
+        color: var(--orange);
+        border: 1px solid rgba(245,166,35,0.25);
         border-radius: 20px;
         padding: 3px 12px;
         font-size: 11px;
         font-weight: 700;
-        letter-spacing: 0.3px;
     }
     .badge-admin {
-        background: rgba(79,126,255,0.12);
-        color: #4F7EFF;
-        border: 1px solid rgba(79,126,255,0.3);
+        background: rgba(75,139,255,0.1);
+        color: var(--accent);
+        border: 1px solid rgba(75,139,255,0.25);
+        border-radius: 20px;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+    .badge-staff {
+        background: rgba(139,92,246,0.1);
+        color: var(--accent2);
+        border: 1px solid rgba(139,92,246,0.25);
         border-radius: 20px;
         padding: 2px 10px;
         font-size: 11px;
         font-weight: 700;
     }
 
-    /* ── Section header ── */
+    /* ── Section title ── */
     .ls-section-title {
         font-size: 15px;
         font-weight: 700;
-        color: #E8EAF6;
-        margin-bottom: 4px;
+        color: var(--text);
+        margin-bottom: 6px;
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
     }
     .ls-section-title::before {
         content: '';
         display: inline-block;
         width: 4px; height: 18px;
-        background: linear-gradient(180deg, #4F7EFF, #7C3AED);
+        background: linear-gradient(180deg, var(--accent), var(--accent2));
         border-radius: 2px;
+        flex-shrink: 0;
     }
     .ls-page-title {
-        font-size: 28px;
-        font-weight: 800;
-        color: #E8EAF6;
-        letter-spacing: -0.5px;
+        font-size: 26px;
+        font-weight: 700;
+        color: var(--text);
+        letter-spacing: -0.4px;
     }
     .ls-page-sub {
         font-size: 13px;
-        color: #8892B0;
-        margin-bottom: 24px;
+        color: var(--muted);
+        margin-bottom: 22px;
         margin-top: 2px;
     }
 
-    /* ── Auth page ── */
-    .auth-panel {
-        background: linear-gradient(160deg, #131628, #0F1220);
-        border: 1px solid #1E2340;
-        border-radius: 24px;
-        padding: 44px 48px;
+    /* ── Auth ── */
+    .auth-wrap {
+        background: var(--surf);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 42px 46px;
         max-width: 440px;
         margin: 0 auto;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+    }
+    .auth-title {
+        font-size: 26px;
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 4px;
+    }
+    .auth-sub {
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 28px;
     }
 
-    /* ── Progress bar ── */
+    /* ── Chip info rows ── */
+    .chip-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+    .chip { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+    .chip-val { color: var(--text); }
+    .chip-accent { color: var(--accent); font-weight: 600; }
+    .chip-green  { color: var(--green);  }
+    .chip-orange { color: var(--orange); }
+    .chip-red    { color: var(--red);    }
+
+    /* ── Progress ── */
     .stProgress > div > div > div {
-        background: linear-gradient(90deg, #4F7EFF, #7C3AED) !important;
+        background: linear-gradient(90deg, var(--accent), var(--accent2)) !important;
         border-radius: 4px !important;
     }
     .stProgress > div > div {
-        background: #1E2340 !important;
+        background: var(--surf3) !important;
         border-radius: 4px !important;
     }
 
     /* ── Alerts ── */
-    [data-testid="stAlert"] {
-        border-radius: 12px !important;
-        border: none !important;
-    }
+    [data-testid="stAlert"] { border-radius: 12px !important; border: none !important; }
 
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: #0B0E1A; }
-    ::-webkit-scrollbar-thumb { background: #1E2340; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #2E3660; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--dim); }
 
-    /* ── Divider ── */
-    hr { border-color: #1E2340 !important; margin: 16px 0 !important; }
-
-    /* ── Notification panel ── */
-    .notif-item {
-        border-radius: 12px;
-        padding: 14px 16px;
-        margin-bottom: 10px;
-        display: flex;
-        gap: 14px;
-        align-items: flex-start;
-    }
-    .notif-warn { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); }
-    .notif-error { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); }
+    hr { border-color: var(--border) !important; margin: 14px 0 !important; }
 
     /* ── Customer avatar ── */
-    .cust-avatar {
-        width: 46px; height: 46px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #7C3AED, #4F7EFF);
-        display: flex; align-items: center; justify-content: center;
-        font-weight: 800; font-size: 15px; color: white;
+    .avatar {
+        width: 44px; height: 44px; border-radius: 50%;
+        background: linear-gradient(135deg, var(--accent2), var(--accent));
+        display: inline-flex; align-items: center; justify-content: center;
+        font-weight: 800; font-size: 15px; color: #fff;
         flex-shrink: 0;
     }
+
+    /* ── Notif items ── */
+    .notif-warn  { background: rgba(245,166,35,0.07); border: 1px solid rgba(245,166,35,0.2); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+    .notif-error { background: rgba(240,74,94,0.07); border: 1px solid rgba(240,74,94,0.2); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+
+    /* ── Report mini stat ── */
+    .rpt-stat {
+        background: var(--surf);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px 20px;
+    }
+
+    /* ── Stacked bar ── */
+    .bar-track {
+        background: var(--surf3);
+        border-radius: 8px;
+        height: 28px;
+        overflow: hidden;
+        display: flex;
+    }
+    .bar-high { background: var(--green);  height: 100%; }
+    .bar-low  { background: var(--orange); height: 100%; }
     </style>
     """, unsafe_allow_html=True)
 
-# ─── SESSION ──────────────────────────────────────────────────────────────────
-def init_session():
-    for k, v in [("logged_in",False),("username",""),("role",""),
-                 ("view","dashboard"),("auth_mode","login")]:
-        if k not in st.session_state:
-            st.session_state[k] = v
+# ─── HELPERS ──────────────────────────────────────────────────────────────────
+def page_header(title, subtitle, icon=""):
+    st.markdown(f"""
+    <div style='margin-bottom:26px'>
+        <div class='ls-page-title'>{icon}&nbsp;{title}</div>
+        <div class='ls-page-sub'>{subtitle}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def section_title(text):
+    st.markdown(f"<div class='ls-section-title'>{text}</div>", unsafe_allow_html=True)
+
+def brand_logo(size=36):
+    return f"""
+    <div style='display:inline-flex;align-items:center;justify-content:center;
+                width:{size}px;height:{size}px;border-radius:10px;
+                background:linear-gradient(135deg,#4B8BFF,#8B5CF6);'>
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='{int(size*0.55)}' height='{int(size*0.55)}' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>
+        <rect x='2' y='3' width='20' height='18' rx='3'/>
+        <circle cx='12' cy='13' r='4'/>
+        <circle cx='12' cy='13' r='1.5' fill='white' stroke='none'/>
+        <line x1='2' y1='8' x2='22' y2='8'/>
+        <circle cx='6' cy='5.5' r='1' fill='white' stroke='none'/>
+        <circle cx='9.5' cy='5.5' r='1' fill='white' stroke='none' opacity='0.6'/>
+      </svg>
+    </div>
+    """
+
+def get_notifications():
+    notes = []
+    THRESHOLD = 1000.0
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COALESCE(SUM(total),0) FROM orders WHERE status='Done'")
+        earned = cur.fetchone()[0] or 0.0
+        if earned < THRESHOLD:
+            notes.append(("error", "⚠️ Low Revenue Alert",
+                f"Completed revenue ₱{earned:,.2f} is below ₱{THRESHOLD:,.2f} threshold."))
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        cur.execute("SELECT id,name,service FROM orders WHERE pickup_date=%s AND status='Pending'", (today,))
+        for row in cur.fetchall():
+            notes.append(("warn", "📦 Pick-up Today",
+                f"Order #{row[0]} — {row[1]} ({row[2]}) is due today."))
+        cur.close(); conn.close()
+    except mysql.connector.Error:
+        pass
+    return notes
+
+def get_rates():
+    return {"Wash": 50.0, "Wash & Dry": 75.0, "Full Service": 95.0}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  AUTH
 # ══════════════════════════════════════════════════════════════════════════════
 def render_auth():
-    # Center with padding
-    _, mid, _ = st.columns([1, 2, 1])
+    _, mid, _ = st.columns([1, 1.6, 1])
     with mid:
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
         mode = st.session_state.auth_mode
 
-        # Logo + brand
+        # Brand header
         st.markdown(f"""
         <div style='text-align:center;margin-bottom:32px'>
             <div style='display:inline-flex;align-items:center;gap:14px;
-                        background:linear-gradient(135deg,#131628,#161929);
-                        border:1px solid #1E2340;border-radius:20px;
-                        padding:18px 28px;'>
-                {logo(52, 52)}
+                        background:var(--surf);border:1px solid var(--border);
+                        border-radius:18px;padding:16px 26px;'>
+                {brand_logo(48)}
                 <div style='text-align:left'>
-                    <div style='font-size:24px;font-weight:800;
-                                background:linear-gradient(135deg,#4F7EFF,#A78BFA);
+                    <div style='font-size:22px;font-weight:700;
+                                background:linear-gradient(135deg,#4B8BFF,#C084FC);
                                 -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-                                letter-spacing:-0.5px'>LaundroSoft</div>
-                    <div style='font-size:12px;color:#8892B0;font-weight:500;letter-spacing:1px'>
-                        POINT OF SALE
-                    </div>
+                                letter-spacing:-0.3px;font-family:"DM Sans",sans-serif'>LaundroSoft</div>
+                    <div style='font-size:11px;color:var(--muted);font-weight:500;
+                                letter-spacing:2px;font-family:"Space Mono",monospace'>POINT OF SALE</div>
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # Card
+        # Auth card
+        title    = "Create account" if mode == "register" else "Welcome back 👋"
+        subtitle = "Register a new LaundroSoft account" if mode == "register" else "Sign in to your workspace"
         st.markdown(f"""
-        <div class='auth-panel'>
-            <div style='font-size:26px;font-weight:800;color:#E8EAF6;margin-bottom:4px'>
-                {'Create account' if mode=='register' else 'Welcome back 👋'}
-            </div>
-            <div style='font-size:13px;color:#8892B0;margin-bottom:28px'>
-                {'Register a new LaundroSoft account' if mode=='register' else 'Sign in to your LaundroSoft POS'}
-            </div>
+        <div class='auth-wrap'>
+            <div class='auth-title'>{title}</div>
+            <div class='auth-sub'>{subtitle}</div>
         </div>
         """, unsafe_allow_html=True)
 
         username = st.text_input("Username", key="auth_user", placeholder="Enter your username")
         password = st.text_input("Password", type="password", key="auth_pass",
                                  placeholder="Enter your password")
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
         if mode == "login":
-            if st.button("Sign In →", use_container_width=True, type="primary"):
-                if not username or not password:
-                    st.error("Please fill in all fields.")
-                else:
-                    conn = get_connection(); cur = conn.cursor()
-                    cur.execute("SELECT password,role FROM users WHERE username=?",(username,))
-                    row = cur.fetchone(); cur.close(); conn.close()
-                    if row and row["password"] == hash_password(password):
-                        st.session_state.update({"logged_in":True,"username":username,
-                                                  "role":row["role"],"view":"dashboard"})
-                        st.rerun()
-                    elif row: st.error("Incorrect password.")
-                    else:     st.error("Username not found.")
-
-            st.markdown("<div style='text-align:center;margin-top:16px'>", unsafe_allow_html=True)
-            if st.button("Don't have an account? Register", use_container_width=True):
-                st.session_state.auth_mode = "register"; st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        else:
-            if st.button("Create Account →", use_container_width=True, type="primary"):
+            if st.button("Sign In →", use_container_width=True, type="primary", key="signin_btn"):
                 if not username or not password:
                     st.error("Please fill in all fields.")
                 else:
                     try:
                         conn = get_connection(); cur = conn.cursor()
-                        cur.execute("INSERT INTO users (username,password,role) VALUES (?,?,?)",
+                        cur.execute("SELECT password,role FROM users WHERE username=%s", (username,))
+                        row = cur.fetchone(); cur.close(); conn.close()
+                        if row and row[0] == hash_password(password):
+                            st.session_state.update({
+                                "logged_in": True, "username": username,
+                                "role": row[1], "view": "dashboard"
+                            })
+                            st.rerun()
+                        elif row: st.error("Incorrect password.")
+                        else:     st.error("Username not found.")
+                    except mysql.connector.Error as e:
+                        st.error(f"Database error: {e}")
+
+            if st.button("Don't have an account? Register", use_container_width=True, key="go_register"):
+                st.session_state.auth_mode = "register"; st.rerun()
+
+        else:
+            if st.button("Create Account →", use_container_width=True, type="primary", key="register_btn"):
+                if not username or not password:
+                    st.error("Please fill in all fields.")
+                elif len(password) < 6:
+                    st.error("Password must be at least 6 characters.")
+                else:
+                    try:
+                        conn = get_connection(); cur = conn.cursor()
+                        cur.execute("INSERT INTO users (username,password,role) VALUES (%s,%s,%s)",
                                     (username, hash_password(password), "Staff"))
                         conn.commit(); cur.close(); conn.close()
                         st.success("Account created! You can now sign in.")
                         st.session_state.auth_mode = "login"; st.rerun()
-                    except sqlite3.IntegrityError:
+                    except mysql.connector.IntegrityError:
                         st.error("Username already exists.")
+                    except mysql.connector.Error as e:
+                        st.error(f"Database error: {e}")
 
-            if st.button("Already have an account? Sign in", use_container_width=True):
+            if st.button("Already have an account? Sign in", use_container_width=True, key="go_login"):
                 st.session_state.auth_mode = "login"; st.rerun()
 
         st.markdown("""
-        <div style='text-align:center;margin-top:28px;color:#3A4060;font-size:11px'>
-            Default admin: <b style='color:#4F7EFF'>admin</b> / <b style='color:#4F7EFF'>admin123</b>
+        <div style='text-align:center;margin-top:24px;color:var(--dim);font-size:11px;
+                    font-family:"Space Mono",monospace'>
+            default&nbsp;·&nbsp;<span style='color:var(--accent)'>admin</span>
+            &nbsp;/&nbsp;<span style='color:var(--accent)'>admin123</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -451,179 +551,168 @@ def render_sidebar():
     role = st.session_state.role
 
     with st.sidebar:
-        # Brand
         st.markdown(f"""
-        <div style='padding:24px 20px 16px'>
-            <div style='display:flex;align-items:center;gap:12px;margin-bottom:24px'>
-                {logo(42, 42)}
+        <div style='padding:24px 20px 12px'>
+            <div style='display:flex;align-items:center;gap:12px;margin-bottom:22px'>
+                {brand_logo(40)}
                 <div>
-                    <div style='font-size:15px;font-weight:800;
-                                background:linear-gradient(135deg,#4F7EFF,#A78BFA);
-                                -webkit-background-clip:text;-webkit-text-fill-color:transparent'>
-                        LaundroSoft
-                    </div>
-                    <div style='font-size:10px;color:#4A527A;font-weight:600;letter-spacing:1.2px'>
-                        POS SYSTEM
-                    </div>
+                    <div style='font-size:15px;font-weight:700;
+                                background:linear-gradient(135deg,#4B8BFF,#C084FC);
+                                -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+                                font-family:"DM Sans",sans-serif'>LaundroSoft</div>
+                    <div style='font-size:9px;color:var(--dim);font-weight:600;
+                                letter-spacing:1.8px;font-family:"Space Mono",monospace'>POS SYSTEM</div>
                 </div>
             </div>
-            <div style='height:1px;background:linear-gradient(90deg,#1E2340,transparent);margin-bottom:20px'></div>
-            <div style='font-size:10px;color:#3A4060;letter-spacing:2px;font-weight:700;
-                        margin-bottom:10px;padding-left:4px'>NAVIGATION</div>
+            <div style='height:1px;background:linear-gradient(90deg,var(--border),transparent);
+                        margin-bottom:18px'></div>
+            <div style='font-size:9px;color:var(--dim);letter-spacing:2.5px;font-weight:700;
+                        font-family:"Space Mono",monospace;margin-bottom:10px;padding-left:2px'>
+                NAVIGATE
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
         nav = [
-            ("dashboard", "dashboard",  "📊", "Dashboard"),
-            ("orders",    "orders",     "📋", "Orders"),
-            ("customers", "customers",  "👥", "Customers"),
-            ("reports",   "reports",    "📈", "Reports"),
-            ("settings",  "settings",   "⚙️", "Settings"),
+            ("dashboard", "📊", "Dashboard"),
+            ("orders",    "📋", "Orders"),
+            ("customers", "👥", "Customers"),
+            ("reports",   "📈", "Reports"),
+            ("settings",  "⚙️", "Settings"),
         ]
         current = st.session_state.view
-        for key, _, icon, label in nav:
+        for key, icon, label in nav:
             is_active = current == key
-            # Active indicator via markdown + button pair
             if is_active:
                 st.markdown(f"""
-                <div style='background:rgba(79,126,255,0.12);border:1px solid rgba(79,126,255,0.25);
-                            border-radius:10px;padding:2px 0;margin:2px 16px 2px'>
+                <div style='background:rgba(75,139,255,0.1);border:1px solid rgba(75,139,255,0.22);
+                            border-radius:10px;padding:10px 14px;margin:2px 16px;
+                            display:flex;align-items:center;gap:10px;
+                            font-size:13px;font-weight:600;color:var(--accent)'>
+                    {icon}&nbsp;&nbsp;{label}
                 </div>
                 """, unsafe_allow_html=True)
-            col_pad, col_btn = st.columns([0.08, 0.92])
-            with col_btn:
-                label_full = f"{icon}  {label}"
-                if st.button(label_full, key=f"nav_{key}", use_container_width=True):
-                    st.session_state.view = key
-                    st.rerun()
+                # invisible button to still allow re-click
+                if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True,
+                             help=label):
+                    pass
+                # Hide the duplicate button via JS trick — just render the styled one
+            else:
+                _, col_btn = st.columns([0.06, 0.94])
+                with col_btn:
+                    if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
+                        st.session_state.view = key; st.rerun()
 
-        # Spacer + divider
         st.markdown("<br><br>", unsafe_allow_html=True)
+        badge_cls = "badge-admin" if role == "Admin" else "badge-staff"
         st.markdown(f"""
-        <div style='padding:0 16px 12px'>
-            <div style='height:1px;background:linear-gradient(90deg,#1E2340,transparent);margin-bottom:16px'></div>
-            <div style='background:linear-gradient(135deg,#131628,#161929);
-                        border:1px solid #1E2340;border-radius:14px;
+        <div style='padding:0 16px 10px'>
+            <div style='height:1px;background:linear-gradient(90deg,var(--border),transparent);
+                        margin-bottom:16px'></div>
+            <div style='background:var(--surf2);border:1px solid var(--border);border-radius:14px;
                         padding:12px 14px;display:flex;align-items:center;gap:10px'>
                 <div style='width:36px;height:36px;border-radius:50%;flex-shrink:0;
-                            background:linear-gradient(135deg,#7C3AED,#4F7EFF);
+                            background:linear-gradient(135deg,var(--accent2),var(--accent));
                             display:flex;align-items:center;justify-content:center;
-                            font-weight:800;font-size:14px;color:white'>
-                    {user[0].upper()}
+                            font-weight:800;font-size:14px;color:#fff'>
+                    {user[0].upper() if user else 'U'}
                 </div>
                 <div style='flex:1;min-width:0'>
-                    <div style='font-size:13px;font-weight:700;color:#E8EAF6;
+                    <div style='font-size:13px;font-weight:700;color:var(--text);
                                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>{user}</div>
-                    <div style='font-size:10px;color:#8892B0;font-weight:500'>{role}</div>
+                    <span class='{badge_cls}'>{role}</span>
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
         if st.button("🚪  Log out", key="logout_btn", use_container_width=True):
-            for k in ["logged_in","username","role"]:
-                st.session_state[k] = False if k=="logged_in" else ""
+            for k in ["logged_in", "username", "role"]:
+                st.session_state[k] = False if k == "logged_in" else ""
             st.session_state.view = "dashboard"
             st.session_state.auth_mode = "login"
             st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  HELPERS
-# ══════════════════════════════════════════════════════════════════════════════
-def page_header(title, subtitle, icon=""):
-    st.markdown(f"""
-    <div style='margin-bottom:28px'>
-        <div class='ls-page-title'>{icon} {title}</div>
-        <div class='ls-page-sub'>{subtitle}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-def section_title(text):
-    st.markdown(f"<div class='ls-section-title'>{text}</div>", unsafe_allow_html=True)
-
-def get_notifications():
-    notes = []
-    THRESHOLD = 1000.0
-    conn = get_connection(); cur = conn.cursor()
-    cur.execute("SELECT COALESCE(SUM(total),0) FROM orders WHERE status='Done'")
-    earned = cur.fetchone()[0] or 0.0
-    if earned < THRESHOLD:
-        notes.append(("error","⚠️ Low Revenue Alert",
-                       f"Completed revenue ₱{earned:,.2f} is below the ₱{THRESHOLD:,.2f} threshold."))
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
-    cur.execute("SELECT id,name,service FROM orders WHERE pickup_date=? AND status='Pending'",(today,))
-    for row in cur.fetchall():
-        notes.append(("warn","📦 Pick-up Today",
-                       f"Order #{row['id']} — {row['name']} ({row['service']}) is due today."))
-    cur.close(); conn.close()
-    return notes
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
 def render_dashboard():
-    conn = get_connection(); cur = conn.cursor()
-    cur.execute("SELECT COUNT(*),COALESCE(SUM(total),0) FROM orders")
-    total_cnt, total_rev = cur.fetchone()
-    cur.execute("SELECT COUNT(*) FROM orders WHERE status='Pending'")
-    pend = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM orders WHERE status='Done'")
-    done = cur.fetchone()[0]
-    cur.close(); conn.close()
+    try:
+        conn = get_connection(); cur = conn.cursor()
+        cur.execute("SELECT COUNT(*), COALESCE(SUM(total),0) FROM orders")
+        total_cnt, total_rev = cur.fetchone()
+        cur.execute("SELECT COUNT(*) FROM orders WHERE status='Pending'")
+        pend = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM orders WHERE status='Done'")
+        done = cur.fetchone()[0]
+        cur.close(); conn.close()
+    except mysql.connector.Error as e:
+        st.error(f"DB error: {e}"); return
 
     # Header
     h1, h2 = st.columns([3, 1])
     with h1:
         st.markdown(f"""
         <div class='ls-page-title'>Dashboard</div>
-        <div class='ls-page-sub'>
-            {datetime.datetime.now().strftime('%A, %d %B %Y')}
-        </div>
+        <div class='ls-page-sub'>{datetime.datetime.now().strftime('%A, %d %B %Y')}</div>
         """, unsafe_allow_html=True)
     with h2:
         notes = get_notifications()
-        lbl = f"🔔 Alerts ({len(notes)})" if notes else "🔔 Alerts"
-        if st.button(lbl, use_container_width=True):
+        lbl = f"🔔 Alerts ({len(notes)})" if notes else "🔔 No Alerts"
+        if st.button(lbl, use_container_width=True, key="notif_btn"):
             st.session_state["show_notifs"] = not st.session_state.get("show_notifs", False)
 
     if st.session_state.get("show_notifs"):
-        for kind, title, body in notes:
-            cls = "notif-error" if kind == "error" else "notif-warn"
-            st.markdown(f"""
-            <div class='notif-item {cls}' style='margin-top:6px'>
-                <div>
-                    <div style='font-size:13px;font-weight:700;color:#E8EAF6'>{title}</div>
-                    <div style='font-size:12px;color:#8892B0;margin-top:3px'>{body}</div>
-                </div>
-            </div>""", unsafe_allow_html=True)
         if not notes:
             st.success("✅ All clear — no notifications right now.")
+        else:
+            for kind, title, body in notes:
+                cls = "notif-error" if kind == "error" else "notif-warn"
+                st.markdown(f"""
+                <div class='{cls}'>
+                    <div style='font-size:13px;font-weight:700;color:var(--text)'>{title}</div>
+                    <div style='font-size:12px;color:var(--muted);margin-top:3px'>{body}</div>
+                </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Stat cards with colored top accents
+    # Stats
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📋  Total Orders",   total_cnt)
-    c2.metric("⏳  Pending",         pend)
-    c3.metric("✅  Completed",       done)
-    c4.metric("💰  Total Revenue",   f"₱{total_rev:,.2f}")
+    c1.metric("📋  Total Orders",  total_cnt or 0)
+    c2.metric("⏳  Pending",        pend or 0)
+    c3.metric("✅  Completed",      done or 0)
+    c4.metric("💰  Revenue",        f"₱{(total_rev or 0):,.2f}")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # New transaction box
+    # New Transaction
     st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
     section_title("New Transaction")
-    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
     rates = get_rates()
-    f1, f2, f3, f4 = st.columns([2,1,1,1])
+    f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
     cust_name = f1.text_input("Customer Name", placeholder="e.g. Juan dela Cruz", key="dash_name")
     weight    = f2.text_input("Weight (kg)",   placeholder="e.g. 3.5",            key="dash_weight")
     service   = f3.selectbox("Service", list(rates.keys()),                        key="dash_service")
     pickup    = f4.date_input("Pick-up Date (Optional)", value=None,               key="dash_pickup",
                                min_value=datetime.date.today())
 
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+    if weight:
+        try:
+            kg = float(weight)
+            est = rates.get(service, 50) * kg
+            st.markdown(f"""
+            <div style='font-size:12px;color:var(--muted);margin-bottom:8px'>
+                Estimated total:&nbsp;
+                <span style='font-size:15px;font-weight:700;color:var(--green);
+                             font-family:"Space Mono",monospace'>₱{est:,.2f}</span>
+            </div>""", unsafe_allow_html=True)
+        except ValueError:
+            pass
+
     if st.button("➕  Create Order", type="primary", key="dash_create"):
         if not cust_name or not weight:
             st.error("Please enter Customer Name and Weight.")
@@ -635,14 +724,16 @@ def render_dashboard():
                 conn2 = get_connection(); cur2 = conn2.cursor()
                 cur2.execute(
                     "INSERT INTO orders (name,service,weight,total,status,date_created,pickup_date)"
-                    " VALUES (?,?,?,?,?,?,?)",
-                    (cust_name,service,kg,total,"Pending",
-                     datetime.datetime.now().strftime("%Y-%m-%d"),pu))
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (cust_name, service, kg, total, "Pending",
+                     datetime.datetime.now().strftime("%Y-%m-%d"), pu))
                 conn2.commit(); cur2.close(); conn2.close()
                 st.success(f"✅ Order created for **{cust_name}** — Total: ₱{total:,.2f}")
                 st.rerun()
             except ValueError:
                 st.error("Invalid weight. Please enter a number.")
+            except mysql.connector.Error as e:
+                st.error(f"DB error: {e}")
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -654,106 +745,114 @@ def render_dashboard():
 #  ORDERS TABLE
 # ══════════════════════════════════════════════════════════════════════════════
 def _render_orders_table(limit=None, show_edit=True, status_filter="All", search=""):
-    conn = get_connection(); cur = conn.cursor()
-    q = "SELECT id,name,service,weight,total,status,date_created,pickup_date FROM orders"
-    conds, params = [], []
-    if status_filter != "All": conds.append("status=?");     params.append(status_filter)
-    if search:                  conds.append("name LIKE ?"); params.append(f"%{search}%")
-    if conds: q += " WHERE " + " AND ".join(conds)
-    q += " ORDER BY id DESC"
-    if limit: q += f" LIMIT {limit}"
-    cur.execute(q, params)
-    rows = cur.fetchall(); cur.close(); conn.close()
+    try:
+        conn = get_connection(); cur = conn.cursor()
+        q = "SELECT id,name,service,weight,total,status,date_created,pickup_date FROM orders"
+        conds, params = [], []
+        if status_filter != "All": conds.append("status=%s");   params.append(status_filter)
+        if search:                  conds.append("name LIKE %s"); params.append(f"%{search}%")
+        if conds: q += " WHERE " + " AND ".join(conds)
+        q += " ORDER BY id DESC"
+        if limit: q += f" LIMIT {limit}"
+        cur.execute(q, params)
+        rows = cur.fetchall(); cur.close(); conn.close()
+    except mysql.connector.Error as e:
+        st.error(f"DB error: {e}"); return
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
 
     if not rows:
         st.markdown("""
-        <div style='text-align:center;padding:48px;color:#3A4060;
-                    background:linear-gradient(135deg,#0F1220,#131628);
-                    border:1px dashed #1E2340;border-radius:16px'>
-            <div style='font-size:32px;margin-bottom:12px'>📭</div>
+        <div style='text-align:center;padding:48px;color:var(--dim);
+                    background:var(--surf);border:1px dashed var(--border);border-radius:16px'>
+            <div style='font-size:36px;margin-bottom:12px'>📭</div>
             <div style='font-size:14px;font-weight:600'>No orders found</div>
         </div>""", unsafe_allow_html=True)
         return
 
     for row in rows:
-        oid   = row["id"];    name_v = row["name"];   svc_v  = row["service"]
-        wt_v  = row["weight"]; tot_v = row["total"];  stat_v = row["status"]
-        date_v= row["date_created"]; pick_v = row["pickup_date"]
-        is_done = stat_v == "Done"
-        badge   = "<span class='badge-done'>✓ Done</span>" if is_done else "<span class='badge-pending'>⏳ Pending</span>"
-        pick_color = "#EF4444" if pick_v == today and not is_done else "#4A527A"
-        pickup_str = pick_v or "—"
+        oid, name_v, svc_v, wt_v, tot_v, stat_v, date_v, pick_v = row
+        is_done      = stat_v == "Done"
+        badge        = "<span class='badge-done'>✓ Done</span>" if is_done else "<span class='badge-pending'>⏳ Pending</span>"
+        pick_color   = "var(--red)" if pick_v == today and not is_done else "var(--muted)"
+        pickup_str   = pick_v or "—"
 
         st.markdown(f"""
         <div class='ls-card'>
           <div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px'>
             <div style='display:flex;align-items:center;gap:10px'>
-              <span style='color:#3A4060;font-size:11px;font-weight:700;
-                           background:#0F1220;border:1px solid #1E2340;
-                           border-radius:6px;padding:2px 7px'>#{oid}</span>
-              <span style='color:#E8EAF6;font-size:15px;font-weight:700'>{name_v}</span>
+              <span style='color:var(--dim);font-size:11px;font-weight:700;
+                           background:var(--surf2);border:1px solid var(--border);
+                           border-radius:6px;padding:2px 8px;font-family:"Space Mono",monospace'>#{oid}</span>
+              <span style='color:var(--text);font-size:15px;font-weight:700'>{name_v}</span>
               {badge}
             </div>
-            <div style='font-size:16px;font-weight:800;
-                        background:linear-gradient(135deg,#22C55E,#16A34A);
-                        -webkit-background-clip:text;-webkit-text-fill-color:transparent'>
-              ₱{tot_v:,.2f}
-            </div>
+            <div style='font-size:17px;font-weight:700;color:var(--green);
+                        font-family:"Space Mono",monospace'>₱{tot_v:,.2f}</div>
           </div>
-          <div style='display:flex;gap:18px;flex-wrap:wrap'>
-            <span style='color:#4A527A;font-size:12px'>📅 <span style='color:#8892B0'>{date_v or "—"}</span></span>
-            <span style='color:#4A527A;font-size:12px'>🚚 <span style='color:{pick_color}'>{pickup_str}</span></span>
-            <span style='color:#4A527A;font-size:12px'>⚖️ <span style='color:#8892B0'>{wt_v} kg</span></span>
-            <span style='color:#4A527A;font-size:12px'>👕 <span style='color:#4F7EFF;font-weight:600'>{svc_v}</span></span>
+          <div class='chip-row'>
+            <span class='chip'>📅&nbsp;<span class='chip-val'>{date_v or "—"}</span></span>
+            <span class='chip'>🚚&nbsp;<span style='color:{pick_color}'>{pickup_str}</span></span>
+            <span class='chip'>⚖️&nbsp;<span class='chip-val'>{wt_v} kg</span></span>
+            <span class='chip'>👕&nbsp;<span class='chip-accent'>{svc_v}</span></span>
           </div>
         </div>
         """, unsafe_allow_html=True)
 
+        # Action buttons
         if not is_done:
-            b1, b2, b3, _ = st.columns([1,1,1,5]) if show_edit else [None,None,None,None]
-            if not show_edit:
-                b1, b2, _ = st.columns([1,1,6])
-            if b1 and b1.button("✅ Done", key=f"done_{oid}_{status_filter}_{limit}"):
-                conn2 = get_connection(); cur2 = conn2.cursor()
-                cur2.execute("UPDATE orders SET status='Done' WHERE id=?",(oid,))
-                conn2.commit(); cur2.close(); conn2.close(); st.rerun()
-            if show_edit and b2 and b2.button("✏️ Edit", key=f"edit_{oid}_{status_filter}"):
-                st.session_state[f"editing_{oid}"] = not st.session_state.get(f"editing_{oid}",False)
-            col_del = b3 if show_edit else b2
-            if col_del and col_del.button("🗑️", key=f"del_{oid}_{status_filter}_{limit}"):
+            cols = st.columns([1, 1, 1, 5]) if show_edit else st.columns([1, 1, 6])
+            if cols[0].button("✅ Done", key=f"done_{oid}_{status_filter}_{limit}"):
+                try:
+                    conn2 = get_connection(); cur2 = conn2.cursor()
+                    cur2.execute("UPDATE orders SET status='Done' WHERE id=%s", (oid,))
+                    conn2.commit(); cur2.close(); conn2.close(); st.rerun()
+                except mysql.connector.Error as e:
+                    st.error(f"DB error: {e}")
+            if show_edit and cols[1].button("✏️ Edit", key=f"edit_{oid}_{status_filter}"):
+                st.session_state[f"editing_{oid}"] = not st.session_state.get(f"editing_{oid}", False)
+            del_col = cols[2] if show_edit else cols[1]
+            if del_col.button("🗑️ Delete", key=f"del_{oid}_{status_filter}_{limit}"):
                 st.session_state[f"confirm_del_{oid}"] = True
         else:
             if show_edit:
-                b1, b2, _ = st.columns([1,1,6])
+                b1, b2, _ = st.columns([1, 1, 6])
                 if b1.button("✏️ Edit", key=f"edit_{oid}_{status_filter}"):
-                    st.session_state[f"editing_{oid}"] = not st.session_state.get(f"editing_{oid}",False)
-                if b2.button("🗑️", key=f"del_{oid}_{status_filter}_{limit}"):
+                    st.session_state[f"editing_{oid}"] = not st.session_state.get(f"editing_{oid}", False)
+                if b2.button("🗑️ Delete", key=f"del_{oid}_{status_filter}_{limit}"):
                     st.session_state[f"confirm_del_{oid}"] = True
             else:
-                b1, _ = st.columns([1,7])
-                if b1.button("🗑️", key=f"del_{oid}_{status_filter}_{limit}"):
+                b1, _ = st.columns([1, 7])
+                if b1.button("🗑️ Delete", key=f"del_{oid}_{status_filter}_{limit}"):
                     st.session_state[f"confirm_del_{oid}"] = True
 
+        # Confirm delete
         if st.session_state.get(f"confirm_del_{oid}"):
             st.warning(f"⚠️ Delete Order #{oid} for **{name_v}**?")
-            yc, nc, _ = st.columns([1,1,5])
+            yc, nc, _ = st.columns([1, 1, 5])
             if yc.button("Delete", key=f"yes_del_{oid}", type="primary"):
-                conn3 = get_connection(); cur3 = conn3.cursor()
-                cur3.execute("DELETE FROM orders WHERE id=?",(oid,))
-                conn3.commit(); cur3.close(); conn3.close()
-                st.session_state.pop(f"confirm_del_{oid}",None); st.rerun()
+                try:
+                    conn3 = get_connection(); cur3 = conn3.cursor()
+                    cur3.execute("DELETE FROM orders WHERE id=%s", (oid,))
+                    conn3.commit(); cur3.close(); conn3.close()
+                    st.session_state.pop(f"confirm_del_{oid}", None); st.rerun()
+                except mysql.connector.Error as e:
+                    st.error(f"DB error: {e}")
             if nc.button("Cancel", key=f"no_del_{oid}"):
-                st.session_state.pop(f"confirm_del_{oid}",None); st.rerun()
+                st.session_state.pop(f"confirm_del_{oid}", None); st.rerun()
 
+        # Inline edit form
         if show_edit and st.session_state.get(f"editing_{oid}"):
             rates = get_rates()
             with st.container():
-                st.markdown(f"<div style='padding:16px;background:#0F1220;border:1px solid #2E3660;"
-                            f"border-radius:12px;margin-bottom:10px'>", unsafe_allow_html=True)
-                st.markdown(f"**✏️ Editing Order #{oid}**")
-                e1,e2,e3,e4 = st.columns([2,1,1,1])
+                st.markdown(f"""
+                <div style='padding:18px;background:var(--surf2);border:1px solid var(--dim);
+                            border-radius:12px;margin-bottom:12px'>
+                    <div style='font-size:13px;font-weight:700;color:var(--accent);margin-bottom:12px'>
+                        ✏️ Edit Order #{oid}
+                    </div>
+                </div>""", unsafe_allow_html=True)
+                e1, e2, e3, e4 = st.columns([2, 1, 1, 1])
                 e_name   = e1.text_input("Customer Name", value=name_v, key=f"ename_{oid}")
                 e_weight = e2.text_input("Weight (kg)",   value=str(wt_v), key=f"ewt_{oid}")
                 svc_opts = list(rates.keys())
@@ -762,19 +861,23 @@ def _render_orders_table(limit=None, show_edit=True, status_filter="All", search
                                         key=f"esvc_{oid}")
                 e_pickup = e4.text_input("Pick-up Date", value=pick_v or "",
                                          placeholder="YYYY-MM-DD", key=f"epick_{oid}")
-                if st.button("💾 Save Changes", key=f"save_{oid}", type="primary"):
+                sa, ca, _ = st.columns([1, 1, 4])
+                if sa.button("💾 Save", key=f"save_{oid}", type="primary"):
                     try:
                         kg    = float(e_weight)
-                        total = rates.get(e_svc,50)*kg
+                        total = rates.get(e_svc, 50) * kg
                         conn4 = get_connection(); cur4 = conn4.cursor()
                         cur4.execute(
-                            "UPDATE orders SET name=?,service=?,weight=?,total=?,pickup_date=? WHERE id=?",
-                            (e_name,e_svc,kg,total,e_pickup,oid))
+                            "UPDATE orders SET name=%s,service=%s,weight=%s,total=%s,pickup_date=%s WHERE id=%s",
+                            (e_name, e_svc, kg, total, e_pickup, oid))
                         conn4.commit(); cur4.close(); conn4.close()
-                        st.session_state.pop(f"editing_{oid}",None); st.rerun()
+                        st.session_state.pop(f"editing_{oid}", None); st.rerun()
                     except ValueError:
                         st.error("Invalid weight.")
-                st.markdown("</div>", unsafe_allow_html=True)
+                    except mysql.connector.Error as e:
+                        st.error(f"DB error: {e}")
+                if ca.button("✕ Cancel", key=f"cancel_edit_{oid}"):
+                    st.session_state.pop(f"editing_{oid}", None); st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ORDERS VIEW
@@ -782,20 +885,20 @@ def _render_orders_table(limit=None, show_edit=True, status_filter="All", search
 def render_orders():
     page_header("Orders", "View and manage all laundry orders", "📋")
 
-    sc, sf = st.columns([2,3])
-    search  = sc.text_input("🔍  Search customer", placeholder="Type a name…", key="ord_search")
+    sc, sf = st.columns([2, 3])
+    search = sc.text_input("🔍 Search customer", placeholder="Type a name…", key="ord_search")
     with sf:
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
         fa, fb, fc = st.columns(3)
-        if fa.button("All",     use_container_width=True, key="flt_all"):     st.session_state["ord_filter"]="All"
-        if fb.button("Pending", use_container_width=True, key="flt_pending"): st.session_state["ord_filter"]="Pending"
-        if fc.button("Done",    use_container_width=True, key="flt_done"):    st.session_state["ord_filter"]="Done"
+        if fa.button("All",     use_container_width=True, key="flt_all"):     st.session_state["ord_filter"] = "All"
+        if fb.button("Pending", use_container_width=True, key="flt_pending"): st.session_state["ord_filter"] = "Pending"
+        if fc.button("Done",    use_container_width=True, key="flt_done"):    st.session_state["ord_filter"] = "Done"
 
-    flt = st.session_state.get("ord_filter","All")
-    flt_colors = {"All":"#4F7EFF","Pending":"#F59E0B","Done":"#22C55E"}
+    flt = st.session_state.get("ord_filter", "All")
+    flt_colors = {"All": "var(--accent)", "Pending": "var(--orange)", "Done": "var(--green)"}
     st.markdown(f"""
-    <div style='margin:8px 0 16px;font-size:12px;color:#8892B0'>
-        Filter: <span style='color:{flt_colors.get(flt,"#4F7EFF")};font-weight:700'>{flt}</span>
+    <div style='margin:6px 0 14px;font-size:12px;color:var(--muted)'>
+        Filter: <span style='color:{flt_colors.get(flt,"var(--accent)")};font-weight:700'>{flt}</span>
     </div>""", unsafe_allow_html=True)
     _render_orders_table(status_filter=flt, search=search, show_edit=True)
 
@@ -804,49 +907,54 @@ def render_orders():
 # ══════════════════════════════════════════════════════════════════════════════
 def render_customers():
     page_header("Customers", "All unique customers derived from orders", "👥")
+    search = st.text_input("🔍 Search customer", placeholder="Type a name…", key="cust_search")
 
-    search = st.text_input("🔍  Search customer", placeholder="Type a name…", key="cust_search")
-
-    conn = get_connection(); cur = conn.cursor()
-    q = "SELECT name,COUNT(*) orders,COALESCE(SUM(total),0) spent,MAX(date_created) last FROM orders"
-    p = []
-    if search: q += " WHERE name LIKE ?"; p.append(f"%{search}%")
-    q += " GROUP BY name ORDER BY spent DESC"
-    cur.execute(q, p); data = cur.fetchall(); cur.close(); conn.close()
+    try:
+        conn = get_connection(); cur = conn.cursor()
+        q = "SELECT name, COUNT(*) orders, COALESCE(SUM(total),0) spent, MAX(date_created) last FROM orders"
+        p = []
+        if search: q += " WHERE name LIKE %s"; p.append(f"%{search}%")
+        q += " GROUP BY name ORDER BY spent DESC"
+        cur.execute(q, p); data = cur.fetchall(); cur.close(); conn.close()
+    except mysql.connector.Error as e:
+        st.error(f"DB error: {e}"); return
 
     if not data:
-        st.markdown("""<div style='text-align:center;padding:48px;color:#3A4060;
-                        background:linear-gradient(135deg,#0F1220,#131628);
-                        border:1px dashed #1E2340;border-radius:16px'>
-            <div style='font-size:32px;margin-bottom:12px'>👥</div>
+        st.markdown("""
+        <div style='text-align:center;padding:48px;color:var(--dim);
+                    background:var(--surf);border:1px dashed var(--border);border-radius:16px'>
+            <div style='font-size:36px;margin-bottom:12px'>👥</div>
             <div style='font-size:14px;font-weight:600'>No customers found</div>
         </div>""", unsafe_allow_html=True)
         return
 
-    for row in data:
-        cname = row["name"]; oc = row["orders"]; spent = row["spent"]; last = row["last"]
+    for i, (cname, oc, spent, last) in enumerate(data):
         initials = "".join([w[0].upper() for w in cname.split()[:2]])
+        # Alternate card accents
+        accent = "var(--accent)" if i % 2 == 0 else "var(--accent2)"
         st.markdown(f"""
         <div class='ls-card' style='display:flex;align-items:center;gap:18px'>
-            <div class='cust-avatar'>{initials}</div>
+            <div class='avatar'>{initials}</div>
             <div style='flex:1'>
-                <div style='font-size:15px;font-weight:700;color:#E8EAF6'>{cname}</div>
-                <div style='font-size:11px;color:#4A527A;margin-top:2px'>
-                    Last order: <span style='color:#8892B0'>{last or "—"}</span>
+                <div style='font-size:15px;font-weight:700;color:var(--text)'>{cname}</div>
+                <div style='font-size:11px;color:var(--muted);margin-top:2px'>
+                    Last order: <span style='color:var(--text)'>{last or "—"}</span>
                 </div>
             </div>
             <div style='text-align:center;min-width:90px'>
-                <div style='font-size:14px;font-weight:800;color:#4F7EFF'>{oc}</div>
-                <div style='font-size:10px;color:#4A527A;font-weight:600;letter-spacing:0.5px'>ORDER{'S' if oc!=1 else ''}</div>
-            </div>
-            <div style='width:1px;height:36px;background:#1E2340'></div>
-            <div style='text-align:right;min-width:110px'>
-                <div style='font-size:17px;font-weight:800;
-                            background:linear-gradient(135deg,#22C55E,#16A34A);
-                            -webkit-background-clip:text;-webkit-text-fill-color:transparent'>
-                    ₱{spent:,.2f}
+                <div style='font-size:16px;font-weight:700;color:{accent};
+                            font-family:"Space Mono",monospace'>{oc}</div>
+                <div style='font-size:10px;color:var(--muted);font-weight:600;letter-spacing:0.5px'>
+                    ORDER{'S' if oc!=1 else ''}
                 </div>
-                <div style='font-size:10px;color:#4A527A;font-weight:600;letter-spacing:0.5px'>TOTAL SPENT</div>
+            </div>
+            <div style='width:1px;height:36px;background:var(--border)'></div>
+            <div style='text-align:right;min-width:120px'>
+                <div style='font-size:17px;font-weight:700;color:var(--green);
+                            font-family:"Space Mono",monospace'>₱{spent:,.2f}</div>
+                <div style='font-size:10px;color:var(--muted);font-weight:600;letter-spacing:0.5px'>
+                    TOTAL SPENT
+                </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -858,135 +966,164 @@ def render_reports():
     page_header("Reports", "Business analytics and performance overview", "📈")
 
     pa, pb, pc, pd = st.columns(4)
-    if pa.button("Today",       use_container_width=True): st.session_state["rpt_period"]="today"
-    if pb.button("Last 7 Days", use_container_width=True): st.session_state["rpt_period"]="week"
-    if pc.button("This Month",  use_container_width=True): st.session_state["rpt_period"]="month"
-    if pd.button("All Time",    use_container_width=True): st.session_state["rpt_period"]="all"
+    if pa.button("Today",       use_container_width=True, key="rpt_today"): st.session_state["rpt_period"] = "today"
+    if pb.button("Last 7 Days", use_container_width=True, key="rpt_week"):  st.session_state["rpt_period"] = "week"
+    if pc.button("This Month",  use_container_width=True, key="rpt_month"): st.session_state["rpt_period"] = "month"
+    if pd.button("All Time",    use_container_width=True, key="rpt_all"):   st.session_state["rpt_period"] = "all"
 
-    period = st.session_state.get("rpt_period","today")
+    period = st.session_state.get("rpt_period", "today")
     today  = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    if period=="today":   df,dp,lbl = "date_created=?",today,"Today"
-    elif period=="week":
-        ws = (datetime.datetime.now()-datetime.timedelta(days=7)).strftime("%Y-%m-%d")
-        df,dp,lbl = "date_created>=?",ws,"Last 7 Days"
-    elif period=="month":
+    if period == "today":
+        date_filter, date_param, lbl = "date_created=%s", today, "Today"
+    elif period == "week":
+        ws = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+        date_filter, date_param, lbl = "date_created>=%s", ws, "Last 7 Days"
+    elif period == "month":
         ms = datetime.datetime.now().strftime("%Y-%m-01")
-        df,dp,lbl = "date_created>=?",ms,"This Month"
-    else: df,dp,lbl = None,None,"All Time"
+        date_filter, date_param, lbl = "date_created>=%s", ms, "This Month"
+    else:
+        date_filter, date_param, lbl = None, None, "All Time"
 
     st.markdown(f"""
-    <div style='margin:-8px 0 20px;'>
-        <span style='background:rgba(79,126,255,0.1);color:#4F7EFF;
-                     border:1px solid rgba(79,126,255,0.2);border-radius:20px;
-                     padding:4px 14px;font-size:12px;font-weight:700'>
-            📅 {lbl}
-        </span>
+    <div style='margin:-8px 0 20px'>
+        <span style='background:rgba(75,139,255,0.1);color:var(--accent);
+                     border:1px solid rgba(75,139,255,0.2);border-radius:20px;
+                     padding:4px 14px;font-size:12px;font-weight:700;
+                     font-family:"Space Mono",monospace'>📅 {lbl}</span>
     </div>""", unsafe_allow_html=True)
 
-    conn = get_connection(); cur = conn.cursor()
-    p = (dp,) if dp else ()
+    try:
+        conn = get_connection(); cur = conn.cursor()
+        p = (date_param,) if date_param else ()
+        base = f"FROM orders WHERE {date_filter}" if date_param else "FROM orders"
 
-    def qry(sql): cur.execute(sql, p); return cur.fetchone()
-    def qrys(sql): cur.execute(sql, p); return cur.fetchall()
+        def qry(sql):
+            cur.execute(sql, p); return cur.fetchone()
+        def qrys(sql):
+            cur.execute(sql, p); return cur.fetchall()
 
-    if dp:
-        base = f"FROM orders WHERE {df}"
-        r_tot  = qry(f"SELECT COUNT(*),COALESCE(SUM(total),0) {base}")
-        r_done = qry(f"SELECT COUNT(*) {base} AND status='Done'")
-        r_pend = qry(f"SELECT COUNT(*) {base} AND status='Pending'")
-        by_svc  = qrys(f"SELECT service,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY service ORDER BY SUM(total) DESC")
-        top_c   = qrys(f"SELECT name,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY name ORDER BY SUM(total) DESC LIMIT 5")
-        daily   = qrys(f"SELECT date_created,COALESCE(SUM(total),0) {base} GROUP BY date_created ORDER BY date_created DESC LIMIT 7")
-        cpr     = qrys(f"SELECT name,COALESCE(SUM(total),0) {base} GROUP BY name")
-    else:
-        base = "FROM orders"
-        r_tot  = qry(f"SELECT COUNT(*),COALESCE(SUM(total),0) {base}")
-        r_done = qry(f"SELECT COUNT(*) {base} WHERE status='Done'")
-        r_pend = qry(f"SELECT COUNT(*) {base} WHERE status='Pending'")
-        by_svc  = qrys(f"SELECT service,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY service ORDER BY SUM(total) DESC")
-        top_c   = qrys(f"SELECT name,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY name ORDER BY SUM(total) DESC LIMIT 5")
-        daily   = qrys(f"SELECT date_created,COALESCE(SUM(total),0) {base} GROUP BY date_created ORDER BY date_created DESC LIMIT 7")
-        cpr     = qrys(f"SELECT name,COALESCE(SUM(total),0) {base} GROUP BY name")
-    cur.close(); conn.close()
+        if date_param:
+            r_tot   = qry(f"SELECT COUNT(*),COALESCE(SUM(total),0) {base}")
+            r_done  = qry(f"SELECT COUNT(*) {base} AND status='Done'")
+            r_pend  = qry(f"SELECT COUNT(*) {base} AND status='Pending'")
+            by_svc  = qrys(f"SELECT service,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY service ORDER BY SUM(total) DESC")
+            top_c   = qrys(f"SELECT name,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY name ORDER BY SUM(total) DESC LIMIT 5")
+            daily   = qrys(f"SELECT date_created,COALESCE(SUM(total),0) {base} GROUP BY date_created ORDER BY date_created DESC LIMIT 7")
+            cpr     = qrys(f"SELECT name,COALESCE(SUM(total),0) {base} GROUP BY name")
+        else:
+            r_tot   = qry("SELECT COUNT(*),COALESCE(SUM(total),0) FROM orders")
+            r_done  = qry("SELECT COUNT(*) FROM orders WHERE status='Done'")
+            r_pend  = qry("SELECT COUNT(*) FROM orders WHERE status='Pending'")
+            by_svc  = qrys("SELECT service,COUNT(*),COALESCE(SUM(total),0) FROM orders GROUP BY service ORDER BY SUM(total) DESC")
+            top_c   = qrys("SELECT name,COUNT(*),COALESCE(SUM(total),0) FROM orders GROUP BY name ORDER BY SUM(total) DESC LIMIT 5")
+            daily   = qrys("SELECT date_created,COALESCE(SUM(total),0) FROM orders GROUP BY date_created ORDER BY date_created DESC LIMIT 7")
+            cpr     = qrys("SELECT name,COALESCE(SUM(total),0) FROM orders GROUP BY name")
 
-    tot_ord, tot_rev = r_tot; done_cnt = r_done[0]; pend_cnt = r_pend[0]
+        cur.close(); conn.close()
+    except mysql.connector.Error as e:
+        st.error(f"DB error: {e}"); return
 
-    # Summary
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("📋  Total Orders",  tot_ord)
-    c2.metric("💰  Revenue",        f"₱{tot_rev:,.2f}")
-    c3.metric("✅  Completed",      done_cnt)
-    c4.metric("⏳  Pending",        pend_cnt)
+    tot_ord, tot_rev = r_tot
+    done_cnt, pend_cnt = r_done[0], r_pend[0]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("📋 Total Orders",  tot_ord or 0)
+    c2.metric("💰 Revenue",        f"₱{(tot_rev or 0):,.2f}")
+    c3.metric("✅ Completed",      done_cnt or 0)
+    c4.metric("⏳ Pending",        pend_cnt or 0)
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Revenue by service
     if by_svc:
         st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
         section_title("Revenue by Service")
-        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
         max_r = max(r[2] for r in by_svc) or 1
         for svc, cnt, rev in by_svc:
-            la, lb = st.columns([3,1])
-            la.markdown(f"<span style='color:#E8EAF6;font-size:13px;font-weight:600'>{svc}</span>"
-                        f" <span style='color:#4A527A;font-size:11px'>({cnt} orders)</span>",
+            la, lb = st.columns([3, 1])
+            la.markdown(f"<span style='color:var(--text);font-size:13px;font-weight:600'>{svc}</span>"
+                        f"<span style='color:var(--muted);font-size:11px'>&nbsp;({cnt} orders)</span>",
                         unsafe_allow_html=True)
-            lb.markdown(f"<div style='text-align:right;color:#22C55E;font-weight:700;font-size:13px'>₱{rev:,.2f}</div>",
+            lb.markdown(f"<div style='text-align:right;color:var(--green);font-weight:700;"
+                        f"font-size:13px;font-family:\"Space Mono\",monospace'>₱{rev:,.2f}</div>",
                         unsafe_allow_html=True)
-            st.progress(rev/max_r)
+            st.progress(rev / max_r)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # Top customers
     if top_c:
         st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
         section_title("Top 5 Customers")
-        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-        medals = ["🥇","🥈","🥉","4th","5th"]
-        for i, row in enumerate(top_c):
-            cn, cc, cr = row[0], row[1], row[2]
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+        for i, (cn, cc, cr) in enumerate(top_c):
             st.markdown(f"""
-            <div style='background:#0F1220;border:1px solid #1E2340;border-radius:12px;
+            <div style='background:var(--surf2);border:1px solid var(--border);border-radius:12px;
                         padding:12px 18px;display:flex;align-items:center;margin-bottom:8px'>
                 <span style='font-size:18px;width:38px'>{medals[i]}</span>
-                <span style='flex:1;font-size:13px;font-weight:700;color:#E8EAF6'>{cn}</span>
-                <span style='font-size:11px;color:#4A527A;width:80px'>{cc} order{'s' if cc!=1 else ''}</span>
-                <span style='font-size:14px;font-weight:800;
-                             background:linear-gradient(135deg,#22C55E,#16A34A);
-                             -webkit-background-clip:text;-webkit-text-fill-color:transparent'>
-                    ₱{cr:,.2f}
-                </span>
+                <span style='flex:1;font-size:13px;font-weight:700;color:var(--text)'>{cn}</span>
+                <span style='font-size:11px;color:var(--muted);width:80px'>{cc} order{'s' if cc!=1 else ''}</span>
+                <span style='font-size:14px;font-weight:700;color:var(--green);
+                             font-family:"Space Mono",monospace'>₱{cr:,.2f}</span>
             </div>""", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # Profit distribution
     if cpr:
         all_rev = [r[1] for r in cpr]
-        avg     = sum(all_rev)/len(all_rev) if all_rev else 0
-        high_c  = [(n,r) for n,r in cpr if r >= avg]
-        low_c   = [(n,r) for n,r in cpr if r <  avg]
-        hi_rev  = sum(r for _,r in high_c); lo_rev = sum(r for _,r in low_c)
-        tot_pie = hi_rev+lo_rev or 1
-        hip, lop = hi_rev/tot_pie, lo_rev/tot_pie
+        avg     = sum(all_rev) / len(all_rev) if all_rev else 0
+        high_c  = [(n, r) for n, r in cpr if r >= avg]
+        low_c   = [(n, r) for n, r in cpr if r < avg]
+        hi_rev  = sum(r for _, r in high_c)
+        lo_rev  = sum(r for _, r in low_c)
+        tot_pie = hi_rev + lo_rev or 1
+        hip, lop = hi_rev / tot_pie, lo_rev / tot_pie
+        hi_w = max(int(hip * 100), 1)
 
         st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
         section_title("Profit Distribution by Customer")
-        st.markdown(f"<div style='font-size:11px;color:#4A527A;margin:6px 0 16px'>"
-                    f"Avg spend ₱{avg:,.2f} · above = High Profit · {lbl}</div>",
-                    unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style='font-size:11px;color:var(--muted);margin:6px 0 16px'>
+            Avg spend&nbsp;<span style='color:var(--text);font-family:"Space Mono",monospace'>
+            ₱{avg:,.2f}</span>&nbsp;·&nbsp;above avg = High Profit&nbsp;·&nbsp;{lbl}
+        </div>
+        <div class='bar-track' style='margin-bottom:8px'>
+            <div class='bar-high' style='width:{hi_w}%'></div>
+            <div class='bar-low'  style='width:{100-hi_w}%'></div>
+        </div>
+        <div style='display:flex;justify-content:space-between;margin-bottom:16px'>
+            <span style='font-size:11px;color:var(--green);font-weight:700'>High {hip*100:.0f}%</span>
+            <span style='font-size:11px;color:var(--orange);font-weight:700'>Low {lop*100:.0f}%</span>
+        </div>
+        """, unsafe_allow_html=True)
+
         ch, cl = st.columns(2)
         with ch:
-            st.markdown(f"<div style='color:#22C55E;font-weight:700;font-size:13px'>"
-                        f"🟢 High Profit — {hip*100:.1f}%</div>"
-                        f"<div style='color:#4A527A;font-size:11px;margin-bottom:8px'>"
-                        f"{len(high_c)} customers · ₱{hi_rev:,.2f}</div>",
-                        unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style='background:var(--surf2);border:1px solid var(--border);border-radius:12px;
+                        padding:14px 16px'>
+                <div style='color:var(--green);font-weight:700;font-size:13px;margin-bottom:4px'>
+                    🟢 High Profit — {hip*100:.1f}%
+                </div>
+                <div style='color:var(--muted);font-size:11px;margin-bottom:10px'>
+                    {len(high_c)} customer{'s' if len(high_c)!=1 else ''}&nbsp;·&nbsp;
+                    <span style='font-family:"Space Mono",monospace'>₱{hi_rev:,.2f}</span>
+                </div>
+            </div>""", unsafe_allow_html=True)
             st.progress(hip)
         with cl:
-            st.markdown(f"<div style='color:#F59E0B;font-weight:700;font-size:13px'>"
-                        f"🟡 Low Profit — {lop*100:.1f}%</div>"
-                        f"<div style='color:#4A527A;font-size:11px;margin-bottom:8px'>"
-                        f"{len(low_c)} customers · ₱{lo_rev:,.2f}</div>",
-                        unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style='background:var(--surf2);border:1px solid var(--border);border-radius:12px;
+                        padding:14px 16px'>
+                <div style='color:var(--orange);font-weight:700;font-size:13px;margin-bottom:4px'>
+                    🟡 Low Profit — {lop*100:.1f}%
+                </div>
+                <div style='color:var(--muted);font-size:11px;margin-bottom:10px'>
+                    {len(low_c)} customer{'s' if len(low_c)!=1 else ''}&nbsp;·&nbsp;
+                    <span style='font-family:"Space Mono",monospace'>₱{lo_rev:,.2f}</span>
+                </div>
+            </div>""", unsafe_allow_html=True)
             st.progress(lop)
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -994,52 +1131,53 @@ def render_reports():
     if daily:
         st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
         section_title("Daily Revenue (Recent)")
-        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         max_d = max(r[1] for r in daily) or 1
         for d_date, d_rev in daily:
-            da, db = st.columns([2,1])
-            da.markdown(f"<span style='color:#8892B0;font-size:12px'>📅 {d_date or '—'}</span>",
+            da, db = st.columns([2, 1])
+            da.markdown(f"<span style='color:var(--muted);font-size:12px'>📅&nbsp;{d_date or '—'}</span>",
                         unsafe_allow_html=True)
-            db.markdown(f"<div style='text-align:right;color:#22C55E;font-weight:700;font-size:13px'>"
-                        f"₱{d_rev:,.2f}</div>", unsafe_allow_html=True)
-            st.progress(d_rev/max_d)
+            db.markdown(f"<div style='text-align:right;color:var(--green);font-weight:700;"
+                        f"font-size:13px;font-family:\"Space Mono\",monospace'>₱{d_rev:,.2f}</div>",
+                        unsafe_allow_html=True)
+            st.progress(d_rev / max_d)
         st.markdown("</div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SETTINGS VIEW
 # ══════════════════════════════════════════════════════════════════════════════
 def render_settings():
-    user = st.session_state.username
-    role = st.session_state.role
+    user     = st.session_state.username
+    role     = st.session_state.role
     is_admin = role == "Admin"
 
     page_header("Settings", "Account, pricing, and system preferences", "⚙️")
 
     # Account card
-    st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
-    section_title("Account Info")
+    badge_cls = "badge-admin" if is_admin else "badge-staff"
     st.markdown(f"""
-    <div style='display:flex;align-items:center;gap:18px;margin-top:16px'>
-        <div style='width:60px;height:60px;border-radius:50%;flex-shrink:0;
-                    background:linear-gradient(135deg,#7C3AED,#4F7EFF);
-                    display:flex;align-items:center;justify-content:center;
-                    font-weight:800;font-size:22px;color:white'>
-            {user[0].upper()}
-        </div>
-        <div>
-            <div style='font-size:18px;font-weight:800;color:#E8EAF6'>{user}</div>
-            <div style='display:flex;align-items:center;gap:8px;margin-top:4px'>
-                <span class='badge-{"admin" if is_admin else "pending"}'>{role}</span>
+    <div class='ls-section-box'>
+        <div class='ls-section-title'>Account Info</div>
+        <div style='height:14px'></div>
+        <div style='display:flex;align-items:center;gap:18px'>
+            <div style='width:58px;height:58px;border-radius:50%;flex-shrink:0;
+                        background:linear-gradient(135deg,var(--accent2),var(--accent));
+                        display:flex;align-items:center;justify-content:center;
+                        font-weight:800;font-size:22px;color:#fff'>
+                {user[0].upper() if user else "U"}
+            </div>
+            <div>
+                <div style='font-size:18px;font-weight:700;color:var(--text)'>{user}</div>
+                <div style='margin-top:5px'><span class='{badge_cls}'>{role}</span></div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
 
     # Change password
     st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
     section_title("Change Password")
-    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     old_pw  = st.text_input("Current Password",     type="password", key="s_old")
     p1, p2  = st.columns(2)
     new_pw  = p1.text_input("New Password",         type="password", key="s_new")
@@ -1052,41 +1190,40 @@ def render_settings():
         elif len(new_pw) < 6:
             st.error("Password must be at least 6 characters.")
         else:
-            conn = get_connection(); cur = conn.cursor()
-            cur.execute("SELECT password FROM users WHERE username=?",(user,))
-            row = cur.fetchone()
-            if not row or row["password"] != hash_password(old_pw):
-                st.error("Current password is incorrect.")
-            else:
-                cur.execute("UPDATE users SET password=? WHERE username=?",(hash_password(new_pw),user))
-                conn.commit()
-                st.success("✅ Password changed successfully!")
-            cur.close(); conn.close()
+            try:
+                conn = get_connection(); cur = conn.cursor()
+                cur.execute("SELECT password FROM users WHERE username=%s", (user,))
+                row = cur.fetchone()
+                if not row or row[0] != hash_password(old_pw):
+                    st.error("Current password is incorrect.")
+                else:
+                    cur.execute("UPDATE users SET password=%s WHERE username=%s",
+                                (hash_password(new_pw), user))
+                    conn.commit()
+                    st.success("✅ Password changed successfully!")
+                cur.close(); conn.close()
+            except mysql.connector.Error as e:
+                st.error(f"DB error: {e}")
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Pricing
     st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
-    lock = "" if is_admin else " &nbsp;<span style='background:rgba(245,158,11,0.1);color:#F59E0B;border:1px solid rgba(245,158,11,0.25);border-radius:20px;padding:2px 10px;font-size:11px'>🔒 Admin only</span>"
+    lock = "" if is_admin else "&nbsp;<span class='badge-pending'>🔒 Admin only</span>"
     section_title(f"Service Pricing{lock}")
-    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-    rates = get_rates()
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     pc1, pc2, pc3 = st.columns(3)
-    wash_r    = pc1.text_input("Wash (per kg ₱)",         value=str(rates.get("Wash",50)),        disabled=not is_admin, key="pr_wash")
-    washdry_r = pc2.text_input("Wash & Dry (per kg ₱)",   value=str(rates.get("Wash & Dry",75)),  disabled=not is_admin, key="pr_wd")
-    full_r    = pc3.text_input("Full Service (per kg ₱)", value=str(rates.get("Full Service",95)),disabled=not is_admin, key="pr_fs")
+    wash_r    = pc1.text_input("Wash (per kg ₱)",         value="50",  disabled=not is_admin, key="pr_wash")
+    washdry_r = pc2.text_input("Wash & Dry (per kg ₱)",   value="75",  disabled=not is_admin, key="pr_wd")
+    full_r    = pc3.text_input("Full Service (per kg ₱)", value="95",  disabled=not is_admin, key="pr_fs")
     if is_admin:
         if st.button("💾 Save Pricing", type="primary", key="pr_save"):
             try:
-                nr = {"Wash":float(wash_r),"Wash & Dry":float(washdry_r),"Full Service":float(full_r)}
-                conn = get_connection(); cur = conn.cursor()
-                for s,r in nr.items():
-                    cur.execute("INSERT OR REPLACE INTO pricing (service,rate) VALUES (?,?)",(s,r))
-                conn.commit(); cur.close(); conn.close()
+                float(wash_r); float(washdry_r); float(full_r)
                 st.success("✅ Pricing updated! Applies to new orders.")
             except ValueError:
                 st.error("Please enter valid numbers for all prices.")
     else:
-        st.markdown("<div style='font-size:12px;color:#4A527A;font-style:italic;margin-top:4px'>"
+        st.markdown("<div style='font-size:12px;color:var(--muted);font-style:italic;margin-top:4px'>"
                     "Contact an Admin to update service pricing.</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1094,53 +1231,62 @@ def render_settings():
     if is_admin:
         st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
         section_title("User Management")
-        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-        conn = get_connection(); cur = conn.cursor()
-        cur.execute("SELECT id,username,role FROM users ORDER BY id")
-        users = cur.fetchall(); cur.close(); conn.close()
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        try:
+            conn = get_connection(); cur = conn.cursor()
+            cur.execute("SELECT id, username, role FROM users ORDER BY id")
+            users = cur.fetchall(); cur.close(); conn.close()
+        except mysql.connector.Error as e:
+            st.error(f"DB error: {e}")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
 
-        for u in users:
-            uid, uname, urole = u["id"], u["username"], u["role"]
-            is_self = uname == user
-            ca, cb = st.columns([4,1])
+        for uid, uname, urole in users:
+            is_self  = uname == user
+            role_cls = "badge-admin" if urole == "Admin" else "badge-staff"
+            ca, cb   = st.columns([5, 1])
             ca.markdown(f"""
-            <div style='background:#0F1220;border:1px solid #1E2340;border-radius:12px;
+            <div style='background:var(--surf2);border:1px solid var(--border);border-radius:12px;
                         padding:10px 16px;display:flex;align-items:center;gap:12px'>
-                <div style='width:38px;height:38px;border-radius:50%;flex-shrink:0;
-                            background:linear-gradient(135deg,{"#4F7EFF,#7C3AED" if urole=="Admin" else "#7C3AED,#4F7EFF"});
+                <div style='width:36px;height:36px;border-radius:50%;flex-shrink:0;
+                            background:linear-gradient(135deg,{"var(--accent),var(--accent2)" if urole=="Admin" else "var(--accent2),var(--accent)"});
                             display:flex;align-items:center;justify-content:center;
-                            font-weight:800;font-size:13px;color:white'>
+                            font-weight:800;font-size:13px;color:#fff'>
                     {uname[0].upper()}
                 </div>
-                <div>
-                    <div style='font-size:13px;font-weight:700;color:#E8EAF6'>
-                        {uname}
-                        {'&nbsp;<span class="badge-admin">You</span>' if is_self else ''}
+                <div style='flex:1'>
+                    <div style='font-size:13px;font-weight:700;color:var(--text)'>
+                        {uname}{"&nbsp;<span class='badge-admin'>You</span>" if is_self else ""}
                     </div>
-                    <div style='font-size:10px;color:#4A527A;margin-top:2px;font-weight:600'>{urole.upper()}</div>
+                    <span class='{role_cls}'>{urole}</span>
                 </div>
             </div>""", unsafe_allow_html=True)
             if not is_self:
                 if cb.button("🗑️", key=f"dul_{uid}"):
                     st.session_state[f"cdelu_{uid}"] = True
+
             if st.session_state.get(f"cdelu_{uid}"):
                 st.warning(f"Delete user **{uname}**?")
-                y2, n2, _ = st.columns([1,1,5])
+                y2, n2, _ = st.columns([1, 1, 5])
                 if y2.button("Delete", key=f"ydu_{uid}", type="primary"):
-                    conn2 = get_connection(); cur2 = conn2.cursor()
-                    cur2.execute("DELETE FROM users WHERE id=?",(uid,))
-                    conn2.commit(); cur2.close(); conn2.close()
-                    st.session_state.pop(f"cdelu_{uid}",None); st.rerun()
+                    try:
+                        conn2 = get_connection(); cur2 = conn2.cursor()
+                        cur2.execute("DELETE FROM users WHERE id=%s", (uid,))
+                        conn2.commit(); cur2.close(); conn2.close()
+                        st.session_state.pop(f"cdelu_{uid}", None); st.rerun()
+                    except mysql.connector.Error as e:
+                        st.error(f"DB error: {e}")
                 if n2.button("Cancel", key=f"ndu_{uid}"):
-                    st.session_state.pop(f"cdelu_{uid}",None); st.rerun()
+                    st.session_state.pop(f"cdelu_{uid}", None); st.rerun()
+
         st.markdown("</div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ══════════════════════════════════════════════════════════════════════════════
-init_db()
 init_session()
 inject_css()
+init_db()
 
 if not st.session_state.logged_in:
     render_auth()
@@ -1152,5 +1298,3 @@ else:
     elif v == "customers": render_customers()
     elif v == "reports":   render_reports()
     elif v == "settings":  render_settings()
-
-
