@@ -92,21 +92,50 @@ def main(page: ft.Page):
     session = {"role": None, "user": ""}
 
     # ── SNACKBAR ──────────────────────────────────────────────────────────────
-    def show_msg(msg, is_error=False):
-        page.snack_bar = ft.SnackBar(
-            content=ft.Row([
-                ft.Icon(
-                    ft.Icons.ERROR_OUTLINE if is_error else ft.Icons.CHECK_CIRCLE_OUTLINE,
-                    color=C_WHITE, size=20
+    _snack_icon = ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=C_WHITE, size=20)
+    _snack_text = ft.Text("", color=C_WHITE, size=13, expand=True)
+
+    def _dismiss_snack():
+        _snack_bar.open = False
+        page.update()
+
+    _snack_bar = ft.SnackBar(
+        content=ft.Row(
+            [
+                _snack_icon,
+                _snack_text,
+                ft.IconButton(
+                    ft.Icons.CLOSE_ROUNDED,
+                    icon_color=ft.Colors.with_opacity(0.7, C_WHITE),
+                    icon_size=16,
+                    on_click=lambda e: _dismiss_snack(),
+                    padding=ft.Padding(left=0, right=0, top=0, bottom=0),
                 ),
-                ft.Text(msg, color=C_WHITE, size=13)
-            ], spacing=10),
-            bgcolor=C_RED if is_error else C_GREEN,
-            duration=3000,
-            behavior=ft.SnackBarBehavior.FLOATING,
-            margin=ft.Margin(left=20, right=20, top=0, bottom=20)
-        )
-        page.snack_bar.open = True
+            ],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=C_GREEN,
+        duration=3000,
+        behavior=ft.SnackBarBehavior.FLOATING,
+        margin=ft.Margin(left=20, right=20, top=0, bottom=20),
+        shape=ft.RoundedRectangleBorder(radius=12),
+        elevation=6,
+    )
+    page.overlay.append(_snack_bar)
+
+    def show_msg(msg, is_error=False, is_warning=False):
+        if is_error:
+            _snack_bar.bgcolor   = C_RED
+            _snack_icon.name     = ft.Icons.ERROR_OUTLINE
+        elif is_warning:
+            _snack_bar.bgcolor   = C_ORANGE
+            _snack_icon.name     = ft.Icons.WARNING_AMBER_ROUNDED
+        else:
+            _snack_bar.bgcolor   = C_GREEN
+            _snack_icon.name     = ft.Icons.CHECK_CIRCLE_OUTLINE
+        _snack_text.value    = msg
+        _snack_bar.open      = True
         page.update()
 
     # ── LOGOUT ────────────────────────────────────────────────────────────────
@@ -437,13 +466,45 @@ def main(page: ft.Page):
 
         def on_date_change(e):
             if date_picker.value:
-                pickup_display.value = date_picker.value.strftime("%Y-%m-%d")
-                pickup_display.update()
+                val = date_picker.value
+                # Flet's DatePicker value is a UTC-midnight datetime.
+                # Converting to local time (UTC+8) before reading the date
+                # prevents the day from appearing one behind on PH timezone.
+                import zoneinfo
+                local_val = val.astimezone(zoneinfo.ZoneInfo("Asia/Manila"))
+                pickup_display.value = f"{local_val.year:04d}-{local_val.month:02d}-{local_val.day:02d}"
+                clear_btn.visible = True
             date_picker.open = False
             page.update()
 
-        date_picker = ft.DatePicker(on_change=on_date_change, first_date=datetime.datetime.now())
+        def on_date_dismiss(e):
+            date_picker.open = False
+            page.update()
+
+        date_picker = ft.DatePicker(
+            on_change=on_date_change,
+            on_dismiss=on_date_dismiss,
+            first_date=datetime.datetime.now(),
+        )
         page.overlay.append(date_picker)
+
+        def open_date_picker(_):
+            date_picker.open = True
+            page.update()
+
+        def clear_pickup(_):
+            pickup_display.value = ""
+            clear_btn.visible = False
+            page.update()
+
+        clear_btn = ft.IconButton(
+            icon=ft.Icons.CLOSE_ROUNDED,
+            icon_color=C_MUTED,
+            icon_size=16,
+            visible=False,
+            on_click=clear_pickup,
+            tooltip="Clear date",
+        )
 
         pickup_display = ft.TextField(
             label="Pick-up Date (Optional)",
@@ -453,10 +514,18 @@ def main(page: ft.Page):
             bgcolor=C_SURFACE2, border_color=C_BORDER,
             focused_border_color=C_ACCENT, color=C_TEXT,
             border_radius=10,
-            suffix=ft.IconButton(
-                icon=ft.Icons.CALENDAR_MONTH_OUTLINED, icon_color=C_ACCENT,
-                on_click=lambda _: setattr(date_picker, "open", True) or page.update(),
-            )
+            suffix=ft.Row(
+                [
+                    clear_btn,
+                    ft.IconButton(
+                        icon=ft.Icons.CALENDAR_MONTH_OUTLINED,
+                        icon_color=C_ACCENT,
+                        on_click=open_date_picker,
+                        tooltip="Pick a date",
+                    ),
+                ],
+                spacing=0, tight=True,
+            ),
         )
 
         dash_table = ft.Column()
@@ -738,6 +807,7 @@ def main(page: ft.Page):
                 conn.commit()
                 cur.close(); conn.close()
                 refresh_dash()
+                show_msg("Order marked as Done.")
             except mysql.connector.Error as err:
                 show_msg(f"DB error: {err}", True)
 
@@ -997,6 +1067,7 @@ def main(page: ft.Page):
                     conn.commit()
                     cur.close(); conn.close()
                     load_orders_table()
+                    refresh_dash()
                     show_msg("Order marked as Done.")
                 except mysql.connector.Error as err:
                     show_msg(f"DB error: {err}", True)
