@@ -268,16 +268,6 @@ def inject_css():
         margin-top: 2px;
     }
 
-    /* FIX 1: auth-panel now only styles a container div; inputs are placed inside
-       via st.container() so they are visually grouped. We style the mid column
-       background here instead of wrapping Streamlit widgets in raw HTML. */
-    .auth-wrapper {
-        background: linear-gradient(160deg, #131628, #0F1220);
-        border: 1px solid #1E2340;
-        border-radius: 24px;
-        padding: 44px 48px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-    }
 
     .stProgress > div > div > div {
         background: linear-gradient(90deg, #4F7EFF, #7C3AED) !important;
@@ -370,10 +360,6 @@ def render_auth():
         </div>
         """, unsafe_allow_html=True)
 
-        # FIX 1: Render the card background as a wrapper div, then place a
-        # st.container() inside so Streamlit widgets actually sit inside it.
-        # We open the wrapper div here, render widgets, then close it.
-        st.markdown("<div class='auth-wrapper'>", unsafe_allow_html=True)
 
         st.markdown(f"""
         <div style='font-size:26px;font-weight:800;color:#E8EAF6;margin-bottom:4px'>
@@ -444,8 +430,6 @@ def render_auth():
         </div>
         """, unsafe_allow_html=True)
 
-        # Close the auth-wrapper div
-        st.markdown("</div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SIDEBAR
