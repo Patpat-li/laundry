@@ -56,24 +56,22 @@ def get_rates():
     return r
 
 # ─── SVG LOGO ─────────────────────────────────────────────────────────────────
-LOGO_SVG = """
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="{w}" height="{h}">
-  <defs>
-    <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#4F7EFF"/>
-      <stop offset="100%" style="stop-color:#7C3AED"/>
-    </linearGradient>
-  </defs>
-  <rect width="48" height="48" rx="12" fill="url(#lg)"/>
-  <rect x="9" y="11" width="30" height="28" rx="4" fill="none" stroke="white" stroke-width="2.2"/>
-  <circle cx="24" cy="27" r="8" fill="none" stroke="white" stroke-width="2"/>
-  <circle cx="24" cy="27" r="4.5" fill="none" stroke="white" stroke-width="1.2" stroke-dasharray="2.5 2"/>
-  <line x1="9" y1="18" x2="39" y2="18" stroke="white" stroke-width="1.8"/>
-  <circle cx="14" cy="14.5" r="1.8" fill="white"/>
-  <circle cx="19.5" cy="14.5" r="1.8" fill="white" opacity="0.6"/>
-  <path d="M18 27.5 Q21 25.5 24 27.5 Q27 29.5 30 27.5" fill="none" stroke="white" stroke-width="1.3" stroke-linecap="round"/>
-</svg>
-"""
+LOGO_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' width='{w}' height='{h}'>"
+    "<defs><linearGradient id='lg' x1='0%' y1='0%' x2='100%' y2='100%'>"
+    "<stop offset='0%' style='stop-color:#4F7EFF'/>"
+    "<stop offset='100%' style='stop-color:#7C3AED'/>"
+    "</linearGradient></defs>"
+    "<rect width='48' height='48' rx='12' fill='url(#lg)'/>"
+    "<rect x='9' y='11' width='30' height='28' rx='4' fill='none' stroke='white' stroke-width='2.2'/>"
+    "<circle cx='24' cy='27' r='8' fill='none' stroke='white' stroke-width='2'/>"
+    "<circle cx='24' cy='27' r='4.5' fill='none' stroke='white' stroke-width='1.2' stroke-dasharray='2.5 2'/>"
+    "<line x1='9' y1='18' x2='39' y2='18' stroke='white' stroke-width='1.8'/>"
+    "<circle cx='14' cy='14.5' r='1.8' fill='white'/>"
+    "<circle cx='19.5' cy='14.5' r='1.8' fill='white' opacity='0.6'/>"
+    "<path d='M18 27.5 Q21 25.5 24 27.5 Q27 29.5 30 27.5' fill='none' stroke='white' stroke-width='1.3' stroke-linecap='round'/>"
+    "</svg>"
+)
 
 def logo(w=38, h=38):
     return LOGO_SVG.format(w=w, h=h)
