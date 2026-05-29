@@ -486,17 +486,21 @@ def render_sidebar():
         current = st.session_state.view
         for key, icon, label in nav:
             is_active = current == key
-            if is_active:
-                st.markdown(f"""
-                <div style='background:rgba(79,126,255,0.12);border:1px solid rgba(79,126,255,0.25);
-                            border-radius:10px;padding:2px 0;margin:2px 16px 2px'>
-                </div>
-                """, unsafe_allow_html=True)
-            _, col_btn = st.columns([0.08, 0.92])
-            with col_btn:
-                if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
-                    st.session_state.view = key
-                    st.rerun()
+            # Highlight active item with a CSS class injected per-button
+            active_style = (
+                "style='background:rgba(79,126,255,0.15) !important;"
+                "color:#4F7EFF !important;"
+                "border:1px solid rgba(79,126,255,0.25) !important;'"
+                if is_active else ""
+            )
+            st.markdown(
+                f"<div {active_style}>",
+                unsafe_allow_html=True,
+            )
+            if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
+                st.session_state.view = key
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown(f"""
