@@ -1,5 +1,5 @@
 import streamlit as st
-import mysql.connector
+import sqlite3
 import hashlib
 import datetime
 
@@ -11,56 +11,43 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ─── DATABASE CONFIG ──────────────────────────────────────────────────────────
-DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "2hrze4hr",
-    "database": "myLaundry"
-}
+# ─── DATABASE ─────────────────────────────────────────────────────────────────
+DB_PATH = "laundrosoft.db"
 
 def get_connection():
-    return mysql.connector.connect(**DB_CONFIG)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def init_db():
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(100) UNIQUE NOT NULL,
-                password VARCHAR(255) NOT NULL,
-                role VARCHAR(50) NOT NULL
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS orders (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                service VARCHAR(100) NOT NULL,
-                weight FLOAT NOT NULL,
-                total FLOAT NOT NULL,
-                status VARCHAR(50) NOT NULL,
-                date_created VARCHAR(20),
-                pickup_date VARCHAR(20)
-            )
-        """)
-        conn.commit()
-        try:
-            cursor.execute(
-                "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
-                ("admin", hash_password("admin123"), "Admin")
-            )
-            conn.commit()
-        except mysql.connector.IntegrityError:
-            pass
-        cursor.close()
-        conn.close()
-        return True
-    except mysql.connector.Error as e:
-        st.error(f"Database connection failed: {e}")
-        return False
+    conn = get_connection()
+    cur  = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role     TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT NOT NULL,
+            service      TEXT NOT NULL,
+            weight       REAL NOT NULL,
+            total        REAL NOT NULL,
+            status       TEXT NOT NULL,
+            date_created TEXT,
+            pickup_date  TEXT
+        )
+    """)
+    conn.commit()
+    cur.execute("INSERT OR IGNORE INTO users (username,password,role) VALUES (?,?,?)",
+                ("admin", hash_password("admin123"), "Admin"))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def hash_password(password, salt="laundry_secure_123"):
     return hashlib.sha256((password + salt).encode()).hexdigest()
@@ -113,7 +100,6 @@ def inject_css():
     #MainMenu, footer, header { visibility: hidden; }
     [data-testid="stDecoration"] { display: none; }
 
-    /* ── Sidebar ── */
     [data-testid="stSidebar"] {
         background: var(--surf) !important;
         border-right: 1px solid var(--border) !important;
@@ -121,7 +107,6 @@ def inject_css():
     [data-testid="stSidebarContent"] { padding: 0 !important; }
     [data-testid="stSidebar"] * { font-family: 'DM Sans', sans-serif !important; }
 
-    /* Nav buttons */
     [data-testid="stSidebar"] .stButton > button {
         background: transparent !important;
         color: var(--muted) !important;
@@ -139,13 +124,11 @@ def inject_css():
         color: var(--accent) !important;
     }
 
-    /* ── Main ── */
     [data-testid="stMain"] .block-container {
         padding: 2rem 2.8rem 3rem !important;
         max-width: 1400px !important;
     }
 
-    /* ── Inputs ── */
     input, textarea {
         background-color: var(--surf2) !important;
         color: var(--text) !important;
@@ -169,7 +152,6 @@ def inject_css():
     }
     label { color: var(--muted) !important; font-size: 12px !important; font-weight: 500 !important; }
 
-    /* ── Buttons ── */
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, var(--accent), var(--accent2)) !important;
         color: #fff !important;
@@ -188,7 +170,6 @@ def inject_css():
         transition: all 0.15s ease !important;
     }
 
-    /* ── Metric cards ── */
     [data-testid="metric-container"] {
         background: var(--surf) !important;
         border: 1px solid var(--border) !important;
@@ -218,7 +199,6 @@ def inject_css():
         font-family: 'Space Mono', monospace !important;
     }
 
-    /* ── Cards ── */
     .ls-card {
         background: var(--surf);
         border: 1px solid var(--border);
@@ -227,10 +207,7 @@ def inject_css():
         margin-bottom: 10px;
         transition: border-color 0.2s, transform 0.15s;
     }
-    .ls-card:hover {
-        border-color: var(--dim);
-        transform: translateY(-1px);
-    }
+    .ls-card:hover { border-color: var(--dim); transform: translateY(-1px); }
     .ls-section-box {
         background: var(--surf);
         border: 1px solid var(--border);
@@ -239,121 +216,63 @@ def inject_css():
         margin-bottom: 18px;
     }
 
-    /* ── Badges ── */
     .badge-done {
-        background: rgba(16,217,160,0.1);
-        color: var(--green);
-        border: 1px solid rgba(16,217,160,0.25);
-        border-radius: 20px;
-        padding: 3px 12px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.3px;
+        background: rgba(16,217,160,0.1); color: var(--green);
+        border: 1px solid rgba(16,217,160,0.25); border-radius: 20px;
+        padding: 3px 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
     }
     .badge-pending {
-        background: rgba(245,166,35,0.1);
-        color: var(--orange);
-        border: 1px solid rgba(245,166,35,0.25);
-        border-radius: 20px;
-        padding: 3px 12px;
-        font-size: 11px;
-        font-weight: 700;
+        background: rgba(245,166,35,0.1); color: var(--orange);
+        border: 1px solid rgba(245,166,35,0.25); border-radius: 20px;
+        padding: 3px 12px; font-size: 11px; font-weight: 700;
     }
     .badge-admin {
-        background: rgba(75,139,255,0.1);
-        color: var(--accent);
-        border: 1px solid rgba(75,139,255,0.25);
-        border-radius: 20px;
-        padding: 2px 10px;
-        font-size: 11px;
-        font-weight: 700;
+        background: rgba(75,139,255,0.1); color: var(--accent);
+        border: 1px solid rgba(75,139,255,0.25); border-radius: 20px;
+        padding: 2px 10px; font-size: 11px; font-weight: 700;
     }
     .badge-staff {
-        background: rgba(139,92,246,0.1);
-        color: var(--accent2);
-        border: 1px solid rgba(139,92,246,0.25);
-        border-radius: 20px;
-        padding: 2px 10px;
-        font-size: 11px;
-        font-weight: 700;
+        background: rgba(139,92,246,0.1); color: var(--accent2);
+        border: 1px solid rgba(139,92,246,0.25); border-radius: 20px;
+        padding: 2px 10px; font-size: 11px; font-weight: 700;
     }
 
-    /* ── Section title ── */
     .ls-section-title {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--text);
-        margin-bottom: 6px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
+        font-size: 15px; font-weight: 700; color: var(--text);
+        margin-bottom: 6px; display: flex; align-items: center; gap: 10px;
     }
     .ls-section-title::before {
-        content: '';
-        display: inline-block;
-        width: 4px; height: 18px;
+        content: ''; display: inline-block; width: 4px; height: 18px;
         background: linear-gradient(180deg, var(--accent), var(--accent2));
-        border-radius: 2px;
-        flex-shrink: 0;
+        border-radius: 2px; flex-shrink: 0;
     }
-    .ls-page-title {
-        font-size: 26px;
-        font-weight: 700;
-        color: var(--text);
-        letter-spacing: -0.4px;
-    }
-    .ls-page-sub {
-        font-size: 13px;
-        color: var(--muted);
-        margin-bottom: 22px;
-        margin-top: 2px;
-    }
+    .ls-page-title { font-size: 26px; font-weight: 700; color: var(--text); letter-spacing: -0.4px; }
+    .ls-page-sub   { font-size: 13px; color: var(--muted); margin-bottom: 22px; margin-top: 2px; }
 
-    /* ── Auth ── */
     .auth-wrap {
-        background: var(--surf);
-        border: 1px solid var(--border);
-        border-radius: 22px;
-        padding: 42px 46px;
-        max-width: 440px;
-        margin: 0 auto;
+        background: var(--surf); border: 1px solid var(--border); border-radius: 22px;
+        padding: 42px 46px; max-width: 440px; margin: 0 auto;
         box-shadow: 0 24px 64px rgba(0,0,0,0.5);
     }
-    .auth-title {
-        font-size: 26px;
-        font-weight: 700;
-        color: var(--text);
-        margin-bottom: 4px;
-    }
-    .auth-sub {
-        font-size: 13px;
-        color: var(--muted);
-        margin-bottom: 28px;
-    }
+    .auth-title { font-size: 26px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+    .auth-sub   { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
 
-    /* ── Chip info rows ── */
     .chip-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
     .chip { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
-    .chip-val { color: var(--text); }
+    .chip-val    { color: var(--text); }
     .chip-accent { color: var(--accent); font-weight: 600; }
-    .chip-green  { color: var(--green);  }
+    .chip-green  { color: var(--green); }
     .chip-orange { color: var(--orange); }
-    .chip-red    { color: var(--red);    }
+    .chip-red    { color: var(--red); }
 
-    /* ── Progress ── */
     .stProgress > div > div > div {
         background: linear-gradient(90deg, var(--accent), var(--accent2)) !important;
         border-radius: 4px !important;
     }
-    .stProgress > div > div {
-        background: var(--surf3) !important;
-        border-radius: 4px !important;
-    }
+    .stProgress > div > div { background: var(--surf3) !important; border-radius: 4px !important; }
 
-    /* ── Alerts ── */
     [data-testid="stAlert"] { border-radius: 12px !important; border: none !important; }
 
-    /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -361,37 +280,22 @@ def inject_css():
 
     hr { border-color: var(--border) !important; margin: 14px 0 !important; }
 
-    /* ── Customer avatar ── */
     .avatar {
         width: 44px; height: 44px; border-radius: 50%;
         background: linear-gradient(135deg, var(--accent2), var(--accent));
         display: inline-flex; align-items: center; justify-content: center;
-        font-weight: 800; font-size: 15px; color: #fff;
-        flex-shrink: 0;
+        font-weight: 800; font-size: 15px; color: #fff; flex-shrink: 0;
     }
 
-    /* ── Notif items ── */
-    .notif-warn  { background: rgba(245,166,35,0.07); border: 1px solid rgba(245,166,35,0.2); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
-    .notif-error { background: rgba(240,74,94,0.07); border: 1px solid rgba(240,74,94,0.2); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+    .notif-warn  { background: rgba(245,166,35,0.07); border: 1px solid rgba(245,166,35,0.2);
+                   border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+    .notif-error { background: rgba(240,74,94,0.07); border: 1px solid rgba(240,74,94,0.2);
+                   border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
 
-    /* ── Report mini stat ── */
-    .rpt-stat {
-        background: var(--surf);
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        padding: 18px 20px;
-    }
-
-    /* ── Stacked bar ── */
-    .bar-track {
-        background: var(--surf3);
-        border-radius: 8px;
-        height: 28px;
-        overflow: hidden;
-        display: flex;
-    }
-    .bar-high { background: var(--green);  height: 100%; }
-    .bar-low  { background: var(--orange); height: 100%; }
+    .bar-track { background: var(--surf3); border-radius: 8px; height: 28px;
+                 overflow: hidden; display: flex; }
+    .bar-high  { background: var(--green);  height: 100%; }
+    .bar-low   { background: var(--orange); height: 100%; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -412,7 +316,10 @@ def brand_logo(size=36):
     <div style='display:inline-flex;align-items:center;justify-content:center;
                 width:{size}px;height:{size}px;border-radius:10px;
                 background:linear-gradient(135deg,#4B8BFF,#8B5CF6);'>
-      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='{int(size*0.55)}' height='{int(size*0.55)}' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'
+           width='{int(size*0.55)}' height='{int(size*0.55)}'
+           fill='none' stroke='white' stroke-width='2'
+           stroke-linecap='round' stroke-linejoin='round'>
         <rect x='2' y='3' width='20' height='18' rx='3'/>
         <circle cx='12' cy='13' r='4'/>
         <circle cx='12' cy='13' r='1.5' fill='white' stroke='none'/>
@@ -426,22 +333,19 @@ def brand_logo(size=36):
 def get_notifications():
     notes = []
     THRESHOLD = 1000.0
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT COALESCE(SUM(total),0) FROM orders WHERE status='Done'")
-        earned = cur.fetchone()[0] or 0.0
-        if earned < THRESHOLD:
-            notes.append(("error", "⚠️ Low Revenue Alert",
-                f"Completed revenue ₱{earned:,.2f} is below ₱{THRESHOLD:,.2f} threshold."))
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
-        cur.execute("SELECT id,name,service FROM orders WHERE pickup_date=%s AND status='Pending'", (today,))
-        for row in cur.fetchall():
-            notes.append(("warn", "📦 Pick-up Today",
-                f"Order #{row[0]} — {row[1]} ({row[2]}) is due today."))
-        cur.close(); conn.close()
-    except mysql.connector.Error:
-        pass
+    conn = get_connection()
+    cur  = conn.cursor()
+    cur.execute("SELECT COALESCE(SUM(total),0) FROM orders WHERE status='Done'")
+    earned = cur.fetchone()[0] or 0.0
+    if earned < THRESHOLD:
+        notes.append(("error", "⚠️ Low Revenue Alert",
+            f"Completed revenue ₱{earned:,.2f} is below ₱{THRESHOLD:,.2f} threshold."))
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    cur.execute("SELECT id,name,service FROM orders WHERE pickup_date=? AND status='Pending'", (today,))
+    for row in cur.fetchall():
+        notes.append(("warn", "📦 Pick-up Today",
+            f"Order #{row['id']} — {row['name']} ({row['service']}) is due today."))
+    cur.close(); conn.close()
     return notes
 
 def get_rates():
@@ -456,7 +360,6 @@ def render_auth():
         st.markdown("<br><br>", unsafe_allow_html=True)
         mode = st.session_state.auth_mode
 
-        # Brand header
         st.markdown(f"""
         <div style='text-align:center;margin-bottom:32px'>
             <div style='display:inline-flex;align-items:center;gap:14px;
@@ -475,7 +378,6 @@ def render_auth():
         </div>
         """, unsafe_allow_html=True)
 
-        # Auth card
         title    = "Create account" if mode == "register" else "Welcome back 👋"
         subtitle = "Register a new LaundroSoft account" if mode == "register" else "Sign in to your workspace"
         st.markdown(f"""
@@ -495,20 +397,17 @@ def render_auth():
                 if not username or not password:
                     st.error("Please fill in all fields.")
                 else:
-                    try:
-                        conn = get_connection(); cur = conn.cursor()
-                        cur.execute("SELECT password,role FROM users WHERE username=%s", (username,))
-                        row = cur.fetchone(); cur.close(); conn.close()
-                        if row and row[0] == hash_password(password):
-                            st.session_state.update({
-                                "logged_in": True, "username": username,
-                                "role": row[1], "view": "dashboard"
-                            })
-                            st.rerun()
-                        elif row: st.error("Incorrect password.")
-                        else:     st.error("Username not found.")
-                    except mysql.connector.Error as e:
-                        st.error(f"Database error: {e}")
+                    conn = get_connection(); cur = conn.cursor()
+                    cur.execute("SELECT password,role FROM users WHERE username=?", (username,))
+                    row = cur.fetchone(); cur.close(); conn.close()
+                    if row and row["password"] == hash_password(password):
+                        st.session_state.update({
+                            "logged_in": True, "username": username,
+                            "role": row["role"], "view": "dashboard"
+                        })
+                        st.rerun()
+                    elif row: st.error("Incorrect password.")
+                    else:     st.error("Username not found.")
 
             if st.button("Don't have an account? Register", use_container_width=True, key="go_register"):
                 st.session_state.auth_mode = "register"; st.rerun()
@@ -522,15 +421,13 @@ def render_auth():
                 else:
                     try:
                         conn = get_connection(); cur = conn.cursor()
-                        cur.execute("INSERT INTO users (username,password,role) VALUES (%s,%s,%s)",
+                        cur.execute("INSERT INTO users (username,password,role) VALUES (?,?,?)",
                                     (username, hash_password(password), "Staff"))
                         conn.commit(); cur.close(); conn.close()
                         st.success("Account created! You can now sign in.")
                         st.session_state.auth_mode = "login"; st.rerun()
-                    except mysql.connector.IntegrityError:
+                    except sqlite3.IntegrityError:
                         st.error("Username already exists.")
-                    except mysql.connector.Error as e:
-                        st.error(f"Database error: {e}")
 
             if st.button("Already have an account? Sign in", use_container_width=True, key="go_login"):
                 st.session_state.auth_mode = "login"; st.rerun()
@@ -587,16 +484,10 @@ def render_sidebar():
                 st.markdown(f"""
                 <div style='background:rgba(75,139,255,0.1);border:1px solid rgba(75,139,255,0.22);
                             border-radius:10px;padding:10px 14px;margin:2px 16px;
-                            display:flex;align-items:center;gap:10px;
                             font-size:13px;font-weight:600;color:var(--accent)'>
                     {icon}&nbsp;&nbsp;{label}
                 </div>
                 """, unsafe_allow_html=True)
-                # invisible button to still allow re-click
-                if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True,
-                             help=label):
-                    pass
-                # Hide the duplicate button via JS trick — just render the styled one
             else:
                 _, col_btn = st.columns([0.06, 0.94])
                 with col_btn:
@@ -615,7 +506,7 @@ def render_sidebar():
                             background:linear-gradient(135deg,var(--accent2),var(--accent));
                             display:flex;align-items:center;justify-content:center;
                             font-weight:800;font-size:14px;color:#fff'>
-                    {user[0].upper() if user else 'U'}
+                    {user[0].upper() if user else "U"}
                 </div>
                 <div style='flex:1;min-width:0'>
                     <div style='font-size:13px;font-weight:700;color:var(--text);
@@ -637,19 +528,15 @@ def render_sidebar():
 #  DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
 def render_dashboard():
-    try:
-        conn = get_connection(); cur = conn.cursor()
-        cur.execute("SELECT COUNT(*), COALESCE(SUM(total),0) FROM orders")
-        total_cnt, total_rev = cur.fetchone()
-        cur.execute("SELECT COUNT(*) FROM orders WHERE status='Pending'")
-        pend = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM orders WHERE status='Done'")
-        done = cur.fetchone()[0]
-        cur.close(); conn.close()
-    except mysql.connector.Error as e:
-        st.error(f"DB error: {e}"); return
+    conn = get_connection(); cur = conn.cursor()
+    cur.execute("SELECT COUNT(*), COALESCE(SUM(total),0) FROM orders")
+    total_cnt, total_rev = cur.fetchone()
+    cur.execute("SELECT COUNT(*) FROM orders WHERE status='Pending'")
+    pend = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM orders WHERE status='Done'")
+    done = cur.fetchone()[0]
+    cur.close(); conn.close()
 
-    # Header
     h1, h2 = st.columns([3, 1])
     with h1:
         st.markdown(f"""
@@ -676,7 +563,6 @@ def render_dashboard():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Stats
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("📋  Total Orders",  total_cnt or 0)
     c2.metric("⏳  Pending",        pend or 0)
@@ -685,7 +571,6 @@ def render_dashboard():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # New Transaction
     st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
     section_title("New Transaction")
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
@@ -697,8 +582,6 @@ def render_dashboard():
     service   = f3.selectbox("Service", list(rates.keys()),                        key="dash_service")
     pickup    = f4.date_input("Pick-up Date (Optional)", value=None,               key="dash_pickup",
                                min_value=datetime.date.today())
-
-    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
     if weight:
         try:
@@ -724,7 +607,7 @@ def render_dashboard():
                 conn2 = get_connection(); cur2 = conn2.cursor()
                 cur2.execute(
                     "INSERT INTO orders (name,service,weight,total,status,date_created,pickup_date)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    " VALUES (?,?,?,?,?,?,?)",
                     (cust_name, service, kg, total, "Pending",
                      datetime.datetime.now().strftime("%Y-%m-%d"), pu))
                 conn2.commit(); cur2.close(); conn2.close()
@@ -732,8 +615,6 @@ def render_dashboard():
                 st.rerun()
             except ValueError:
                 st.error("Invalid weight. Please enter a number.")
-            except mysql.connector.Error as e:
-                st.error(f"DB error: {e}")
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -745,19 +626,16 @@ def render_dashboard():
 #  ORDERS TABLE
 # ══════════════════════════════════════════════════════════════════════════════
 def _render_orders_table(limit=None, show_edit=True, status_filter="All", search=""):
-    try:
-        conn = get_connection(); cur = conn.cursor()
-        q = "SELECT id,name,service,weight,total,status,date_created,pickup_date FROM orders"
-        conds, params = [], []
-        if status_filter != "All": conds.append("status=%s");   params.append(status_filter)
-        if search:                  conds.append("name LIKE %s"); params.append(f"%{search}%")
-        if conds: q += " WHERE " + " AND ".join(conds)
-        q += " ORDER BY id DESC"
-        if limit: q += f" LIMIT {limit}"
-        cur.execute(q, params)
-        rows = cur.fetchall(); cur.close(); conn.close()
-    except mysql.connector.Error as e:
-        st.error(f"DB error: {e}"); return
+    conn = get_connection(); cur = conn.cursor()
+    q = "SELECT id,name,service,weight,total,status,date_created,pickup_date FROM orders"
+    conds, params = [], []
+    if status_filter != "All": conds.append("status=?");   params.append(status_filter)
+    if search:                  conds.append("name LIKE ?"); params.append(f"%{search}%")
+    if conds: q += " WHERE " + " AND ".join(conds)
+    q += " ORDER BY id DESC"
+    if limit: q += f" LIMIT {limit}"
+    cur.execute(q, params)
+    rows = cur.fetchall(); cur.close(); conn.close()
 
     today = datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -771,11 +649,13 @@ def _render_orders_table(limit=None, show_edit=True, status_filter="All", search
         return
 
     for row in rows:
-        oid, name_v, svc_v, wt_v, tot_v, stat_v, date_v, pick_v = row
-        is_done      = stat_v == "Done"
-        badge        = "<span class='badge-done'>✓ Done</span>" if is_done else "<span class='badge-pending'>⏳ Pending</span>"
-        pick_color   = "var(--red)" if pick_v == today and not is_done else "var(--muted)"
-        pickup_str   = pick_v or "—"
+        oid      = row["id"];     name_v = row["name"];   svc_v  = row["service"]
+        wt_v     = row["weight"]; tot_v  = row["total"];  stat_v = row["status"]
+        date_v   = row["date_created"]; pick_v = row["pickup_date"]
+        is_done  = stat_v == "Done"
+        badge    = "<span class='badge-done'>✓ Done</span>" if is_done else "<span class='badge-pending'>⏳ Pending</span>"
+        pick_color = "var(--red)" if pick_v == today and not is_done else "var(--muted)"
+        pickup_str = pick_v or "—"
 
         st.markdown(f"""
         <div class='ls-card'>
@@ -799,16 +679,12 @@ def _render_orders_table(limit=None, show_edit=True, status_filter="All", search
         </div>
         """, unsafe_allow_html=True)
 
-        # Action buttons
         if not is_done:
             cols = st.columns([1, 1, 1, 5]) if show_edit else st.columns([1, 1, 6])
             if cols[0].button("✅ Done", key=f"done_{oid}_{status_filter}_{limit}"):
-                try:
-                    conn2 = get_connection(); cur2 = conn2.cursor()
-                    cur2.execute("UPDATE orders SET status='Done' WHERE id=%s", (oid,))
-                    conn2.commit(); cur2.close(); conn2.close(); st.rerun()
-                except mysql.connector.Error as e:
-                    st.error(f"DB error: {e}")
+                conn2 = get_connection(); cur2 = conn2.cursor()
+                cur2.execute("UPDATE orders SET status='Done' WHERE id=?", (oid,))
+                conn2.commit(); cur2.close(); conn2.close(); st.rerun()
             if show_edit and cols[1].button("✏️ Edit", key=f"edit_{oid}_{status_filter}"):
                 st.session_state[f"editing_{oid}"] = not st.session_state.get(f"editing_{oid}", False)
             del_col = cols[2] if show_edit else cols[1]
@@ -826,58 +702,50 @@ def _render_orders_table(limit=None, show_edit=True, status_filter="All", search
                 if b1.button("🗑️ Delete", key=f"del_{oid}_{status_filter}_{limit}"):
                     st.session_state[f"confirm_del_{oid}"] = True
 
-        # Confirm delete
         if st.session_state.get(f"confirm_del_{oid}"):
             st.warning(f"⚠️ Delete Order #{oid} for **{name_v}**?")
             yc, nc, _ = st.columns([1, 1, 5])
             if yc.button("Delete", key=f"yes_del_{oid}", type="primary"):
-                try:
-                    conn3 = get_connection(); cur3 = conn3.cursor()
-                    cur3.execute("DELETE FROM orders WHERE id=%s", (oid,))
-                    conn3.commit(); cur3.close(); conn3.close()
-                    st.session_state.pop(f"confirm_del_{oid}", None); st.rerun()
-                except mysql.connector.Error as e:
-                    st.error(f"DB error: {e}")
+                conn3 = get_connection(); cur3 = conn3.cursor()
+                cur3.execute("DELETE FROM orders WHERE id=?", (oid,))
+                conn3.commit(); cur3.close(); conn3.close()
+                st.session_state.pop(f"confirm_del_{oid}", None); st.rerun()
             if nc.button("Cancel", key=f"no_del_{oid}"):
                 st.session_state.pop(f"confirm_del_{oid}", None); st.rerun()
 
-        # Inline edit form
         if show_edit and st.session_state.get(f"editing_{oid}"):
             rates = get_rates()
-            with st.container():
-                st.markdown(f"""
-                <div style='padding:18px;background:var(--surf2);border:1px solid var(--dim);
-                            border-radius:12px;margin-bottom:12px'>
-                    <div style='font-size:13px;font-weight:700;color:var(--accent);margin-bottom:12px'>
-                        ✏️ Edit Order #{oid}
-                    </div>
-                </div>""", unsafe_allow_html=True)
-                e1, e2, e3, e4 = st.columns([2, 1, 1, 1])
-                e_name   = e1.text_input("Customer Name", value=name_v, key=f"ename_{oid}")
-                e_weight = e2.text_input("Weight (kg)",   value=str(wt_v), key=f"ewt_{oid}")
-                svc_opts = list(rates.keys())
-                e_svc    = e3.selectbox("Service", svc_opts,
-                                        index=svc_opts.index(svc_v) if svc_v in svc_opts else 0,
-                                        key=f"esvc_{oid}")
-                e_pickup = e4.text_input("Pick-up Date", value=pick_v or "",
-                                         placeholder="YYYY-MM-DD", key=f"epick_{oid}")
-                sa, ca, _ = st.columns([1, 1, 4])
-                if sa.button("💾 Save", key=f"save_{oid}", type="primary"):
-                    try:
-                        kg    = float(e_weight)
-                        total = rates.get(e_svc, 50) * kg
-                        conn4 = get_connection(); cur4 = conn4.cursor()
-                        cur4.execute(
-                            "UPDATE orders SET name=%s,service=%s,weight=%s,total=%s,pickup_date=%s WHERE id=%s",
-                            (e_name, e_svc, kg, total, e_pickup, oid))
-                        conn4.commit(); cur4.close(); conn4.close()
-                        st.session_state.pop(f"editing_{oid}", None); st.rerun()
-                    except ValueError:
-                        st.error("Invalid weight.")
-                    except mysql.connector.Error as e:
-                        st.error(f"DB error: {e}")
-                if ca.button("✕ Cancel", key=f"cancel_edit_{oid}"):
+            st.markdown(f"""
+            <div style='padding:16px;background:var(--surf2);border:1px solid var(--dim);
+                        border-radius:12px;margin-bottom:12px'>
+                <div style='font-size:13px;font-weight:700;color:var(--accent);margin-bottom:12px'>
+                    ✏️ Editing Order #{oid}
+                </div>
+            </div>""", unsafe_allow_html=True)
+            e1, e2, e3, e4 = st.columns([2, 1, 1, 1])
+            e_name   = e1.text_input("Customer Name", value=name_v,       key=f"ename_{oid}")
+            e_weight = e2.text_input("Weight (kg)",   value=str(wt_v),    key=f"ewt_{oid}")
+            svc_opts = list(rates.keys())
+            e_svc    = e3.selectbox("Service", svc_opts,
+                                    index=svc_opts.index(svc_v) if svc_v in svc_opts else 0,
+                                    key=f"esvc_{oid}")
+            e_pickup = e4.text_input("Pick-up Date", value=pick_v or "",
+                                     placeholder="YYYY-MM-DD", key=f"epick_{oid}")
+            sa, ca, _ = st.columns([1, 1, 4])
+            if sa.button("💾 Save", key=f"save_{oid}", type="primary"):
+                try:
+                    kg    = float(e_weight)
+                    total = rates.get(e_svc, 50) * kg
+                    conn4 = get_connection(); cur4 = conn4.cursor()
+                    cur4.execute(
+                        "UPDATE orders SET name=?,service=?,weight=?,total=?,pickup_date=? WHERE id=?",
+                        (e_name, e_svc, kg, total, e_pickup, oid))
+                    conn4.commit(); cur4.close(); conn4.close()
                     st.session_state.pop(f"editing_{oid}", None); st.rerun()
+                except ValueError:
+                    st.error("Invalid weight.")
+            if ca.button("✕ Cancel", key=f"cancel_edit_{oid}"):
+                st.session_state.pop(f"editing_{oid}", None); st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ORDERS VIEW
@@ -909,15 +777,12 @@ def render_customers():
     page_header("Customers", "All unique customers derived from orders", "👥")
     search = st.text_input("🔍 Search customer", placeholder="Type a name…", key="cust_search")
 
-    try:
-        conn = get_connection(); cur = conn.cursor()
-        q = "SELECT name, COUNT(*) orders, COALESCE(SUM(total),0) spent, MAX(date_created) last FROM orders"
-        p = []
-        if search: q += " WHERE name LIKE %s"; p.append(f"%{search}%")
-        q += " GROUP BY name ORDER BY spent DESC"
-        cur.execute(q, p); data = cur.fetchall(); cur.close(); conn.close()
-    except mysql.connector.Error as e:
-        st.error(f"DB error: {e}"); return
+    conn = get_connection(); cur = conn.cursor()
+    q = "SELECT name, COUNT(*) orders, COALESCE(SUM(total),0) spent, MAX(date_created) last FROM orders"
+    p = []
+    if search: q += " WHERE name LIKE ?"; p.append(f"%{search}%")
+    q += " GROUP BY name ORDER BY spent DESC"
+    cur.execute(q, p); data = cur.fetchall(); cur.close(); conn.close()
 
     if not data:
         st.markdown("""
@@ -928,9 +793,9 @@ def render_customers():
         </div>""", unsafe_allow_html=True)
         return
 
-    for i, (cname, oc, spent, last) in enumerate(data):
+    for i, row in enumerate(data):
+        cname = row["name"]; oc = row["orders"]; spent = row["spent"]; last = row["last"]
         initials = "".join([w[0].upper() for w in cname.split()[:2]])
-        # Alternate card accents
         accent = "var(--accent)" if i % 2 == 0 else "var(--accent2)"
         st.markdown(f"""
         <div class='ls-card' style='display:flex;align-items:center;gap:18px'>
@@ -975,13 +840,13 @@ def render_reports():
     today  = datetime.datetime.now().strftime("%Y-%m-%d")
 
     if period == "today":
-        date_filter, date_param, lbl = "date_created=%s", today, "Today"
+        date_filter, date_param, lbl = "date_created=?", today, "Today"
     elif period == "week":
         ws = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
-        date_filter, date_param, lbl = "date_created>=%s", ws, "Last 7 Days"
+        date_filter, date_param, lbl = "date_created>=?", ws, "Last 7 Days"
     elif period == "month":
         ms = datetime.datetime.now().strftime("%Y-%m-01")
-        date_filter, date_param, lbl = "date_created>=%s", ms, "This Month"
+        date_filter, date_param, lbl = "date_created>=?", ms, "This Month"
     else:
         date_filter, date_param, lbl = None, None, "All Time"
 
@@ -993,48 +858,42 @@ def render_reports():
                      font-family:"Space Mono",monospace'>📅 {lbl}</span>
     </div>""", unsafe_allow_html=True)
 
-    try:
-        conn = get_connection(); cur = conn.cursor()
-        p = (date_param,) if date_param else ()
-        base = f"FROM orders WHERE {date_filter}" if date_param else "FROM orders"
+    conn = get_connection(); cur = conn.cursor()
+    p    = (date_param,) if date_param else ()
+    base = f"FROM orders WHERE {date_filter}" if date_param else "FROM orders"
 
-        def qry(sql):
-            cur.execute(sql, p); return cur.fetchone()
-        def qrys(sql):
-            cur.execute(sql, p); return cur.fetchall()
+    def qry(sql):  cur.execute(sql, p); return cur.fetchone()
+    def qrys(sql): cur.execute(sql, p); return cur.fetchall()
 
-        if date_param:
-            r_tot   = qry(f"SELECT COUNT(*),COALESCE(SUM(total),0) {base}")
-            r_done  = qry(f"SELECT COUNT(*) {base} AND status='Done'")
-            r_pend  = qry(f"SELECT COUNT(*) {base} AND status='Pending'")
-            by_svc  = qrys(f"SELECT service,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY service ORDER BY SUM(total) DESC")
-            top_c   = qrys(f"SELECT name,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY name ORDER BY SUM(total) DESC LIMIT 5")
-            daily   = qrys(f"SELECT date_created,COALESCE(SUM(total),0) {base} GROUP BY date_created ORDER BY date_created DESC LIMIT 7")
-            cpr     = qrys(f"SELECT name,COALESCE(SUM(total),0) {base} GROUP BY name")
-        else:
-            r_tot   = qry("SELECT COUNT(*),COALESCE(SUM(total),0) FROM orders")
-            r_done  = qry("SELECT COUNT(*) FROM orders WHERE status='Done'")
-            r_pend  = qry("SELECT COUNT(*) FROM orders WHERE status='Pending'")
-            by_svc  = qrys("SELECT service,COUNT(*),COALESCE(SUM(total),0) FROM orders GROUP BY service ORDER BY SUM(total) DESC")
-            top_c   = qrys("SELECT name,COUNT(*),COALESCE(SUM(total),0) FROM orders GROUP BY name ORDER BY SUM(total) DESC LIMIT 5")
-            daily   = qrys("SELECT date_created,COALESCE(SUM(total),0) FROM orders GROUP BY date_created ORDER BY date_created DESC LIMIT 7")
-            cpr     = qrys("SELECT name,COALESCE(SUM(total),0) FROM orders GROUP BY name")
+    if date_param:
+        r_tot  = qry(f"SELECT COUNT(*),COALESCE(SUM(total),0) {base}")
+        r_done = qry(f"SELECT COUNT(*) {base} AND status='Done'")
+        r_pend = qry(f"SELECT COUNT(*) {base} AND status='Pending'")
+        by_svc = qrys(f"SELECT service,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY service ORDER BY SUM(total) DESC")
+        top_c  = qrys(f"SELECT name,COUNT(*),COALESCE(SUM(total),0) {base} GROUP BY name ORDER BY SUM(total) DESC LIMIT 5")
+        daily  = qrys(f"SELECT date_created,COALESCE(SUM(total),0) {base} GROUP BY date_created ORDER BY date_created DESC LIMIT 7")
+        cpr    = qrys(f"SELECT name,COALESCE(SUM(total),0) {base} GROUP BY name")
+    else:
+        r_tot  = qry("SELECT COUNT(*),COALESCE(SUM(total),0) FROM orders")
+        r_done = qry("SELECT COUNT(*) FROM orders WHERE status='Done'")
+        r_pend = qry("SELECT COUNT(*) FROM orders WHERE status='Pending'")
+        by_svc = qrys("SELECT service,COUNT(*),COALESCE(SUM(total),0) FROM orders GROUP BY service ORDER BY SUM(total) DESC")
+        top_c  = qrys("SELECT name,COUNT(*),COALESCE(SUM(total),0) FROM orders GROUP BY name ORDER BY SUM(total) DESC LIMIT 5")
+        daily  = qrys("SELECT date_created,COALESCE(SUM(total),0) FROM orders GROUP BY date_created ORDER BY date_created DESC LIMIT 7")
+        cpr    = qrys("SELECT name,COALESCE(SUM(total),0) FROM orders GROUP BY name")
 
-        cur.close(); conn.close()
-    except mysql.connector.Error as e:
-        st.error(f"DB error: {e}"); return
+    cur.close(); conn.close()
 
-    tot_ord, tot_rev = r_tot
+    tot_ord, tot_rev = r_tot[0], r_tot[1]
     done_cnt, pend_cnt = r_done[0], r_pend[0]
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📋 Total Orders",  tot_ord or 0)
-    c2.metric("💰 Revenue",        f"₱{(tot_rev or 0):,.2f}")
-    c3.metric("✅ Completed",      done_cnt or 0)
-    c4.metric("⏳ Pending",        pend_cnt or 0)
+    c1.metric("📋 Total Orders", tot_ord or 0)
+    c2.metric("💰 Revenue",       f"₱{(tot_rev or 0):,.2f}")
+    c3.metric("✅ Completed",     done_cnt or 0)
+    c4.metric("⏳ Pending",       pend_cnt or 0)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Revenue by service
     if by_svc:
         st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
         section_title("Revenue by Service")
@@ -1051,7 +910,6 @@ def render_reports():
             st.progress(rev / max_r)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Top customers
     if top_c:
         st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
         section_title("Top 5 Customers")
@@ -1069,12 +927,11 @@ def render_reports():
             </div>""", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Profit distribution
     if cpr:
         all_rev = [r[1] for r in cpr]
         avg     = sum(all_rev) / len(all_rev) if all_rev else 0
-        high_c  = [(n, r) for n, r in cpr if r >= avg]
-        low_c   = [(n, r) for n, r in cpr if r < avg]
+        high_c  = [(r[0], r[1]) for r in cpr if r[1] >= avg]
+        low_c   = [(r[0], r[1]) for r in cpr if r[1] < avg]
         hi_rev  = sum(r for _, r in high_c)
         lo_rev  = sum(r for _, r in low_c)
         tot_pie = hi_rev + lo_rev or 1
@@ -1097,16 +954,15 @@ def render_reports():
             <span style='font-size:11px;color:var(--orange);font-weight:700'>Low {lop*100:.0f}%</span>
         </div>
         """, unsafe_allow_html=True)
-
         ch, cl = st.columns(2)
         with ch:
             st.markdown(f"""
             <div style='background:var(--surf2);border:1px solid var(--border);border-radius:12px;
-                        padding:14px 16px'>
+                        padding:14px 16px;margin-bottom:8px'>
                 <div style='color:var(--green);font-weight:700;font-size:13px;margin-bottom:4px'>
                     🟢 High Profit — {hip*100:.1f}%
                 </div>
-                <div style='color:var(--muted);font-size:11px;margin-bottom:10px'>
+                <div style='color:var(--muted);font-size:11px'>
                     {len(high_c)} customer{'s' if len(high_c)!=1 else ''}&nbsp;·&nbsp;
                     <span style='font-family:"Space Mono",monospace'>₱{hi_rev:,.2f}</span>
                 </div>
@@ -1115,11 +971,11 @@ def render_reports():
         with cl:
             st.markdown(f"""
             <div style='background:var(--surf2);border:1px solid var(--border);border-radius:12px;
-                        padding:14px 16px'>
+                        padding:14px 16px;margin-bottom:8px'>
                 <div style='color:var(--orange);font-weight:700;font-size:13px;margin-bottom:4px'>
                     🟡 Low Profit — {lop*100:.1f}%
                 </div>
-                <div style='color:var(--muted);font-size:11px;margin-bottom:10px'>
+                <div style='color:var(--muted);font-size:11px'>
                     {len(low_c)} customer{'s' if len(low_c)!=1 else ''}&nbsp;·&nbsp;
                     <span style='font-family:"Space Mono",monospace'>₱{lo_rev:,.2f}</span>
                 </div>
@@ -1127,7 +983,6 @@ def render_reports():
             st.progress(lop)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Daily revenue
     if daily:
         st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
         section_title("Daily Revenue (Recent)")
@@ -1153,7 +1008,6 @@ def render_settings():
 
     page_header("Settings", "Account, pricing, and system preferences", "⚙️")
 
-    # Account card
     badge_cls = "badge-admin" if is_admin else "badge-staff"
     st.markdown(f"""
     <div class='ls-section-box'>
@@ -1174,7 +1028,6 @@ def render_settings():
     </div>
     """, unsafe_allow_html=True)
 
-    # Change password
     st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
     section_title("Change Password")
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
@@ -1190,31 +1043,27 @@ def render_settings():
         elif len(new_pw) < 6:
             st.error("Password must be at least 6 characters.")
         else:
-            try:
-                conn = get_connection(); cur = conn.cursor()
-                cur.execute("SELECT password FROM users WHERE username=%s", (user,))
-                row = cur.fetchone()
-                if not row or row[0] != hash_password(old_pw):
-                    st.error("Current password is incorrect.")
-                else:
-                    cur.execute("UPDATE users SET password=%s WHERE username=%s",
-                                (hash_password(new_pw), user))
-                    conn.commit()
-                    st.success("✅ Password changed successfully!")
-                cur.close(); conn.close()
-            except mysql.connector.Error as e:
-                st.error(f"DB error: {e}")
+            conn = get_connection(); cur = conn.cursor()
+            cur.execute("SELECT password FROM users WHERE username=?", (user,))
+            row = cur.fetchone()
+            if not row or row["password"] != hash_password(old_pw):
+                st.error("Current password is incorrect.")
+            else:
+                cur.execute("UPDATE users SET password=? WHERE username=?",
+                            (hash_password(new_pw), user))
+                conn.commit()
+                st.success("✅ Password changed successfully!")
+            cur.close(); conn.close()
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Pricing
     st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
     lock = "" if is_admin else "&nbsp;<span class='badge-pending'>🔒 Admin only</span>"
     section_title(f"Service Pricing{lock}")
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     pc1, pc2, pc3 = st.columns(3)
-    wash_r    = pc1.text_input("Wash (per kg ₱)",         value="50",  disabled=not is_admin, key="pr_wash")
-    washdry_r = pc2.text_input("Wash & Dry (per kg ₱)",   value="75",  disabled=not is_admin, key="pr_wd")
-    full_r    = pc3.text_input("Full Service (per kg ₱)", value="95",  disabled=not is_admin, key="pr_fs")
+    wash_r    = pc1.text_input("Wash (per kg ₱)",         value="50", disabled=not is_admin, key="pr_wash")
+    washdry_r = pc2.text_input("Wash & Dry (per kg ₱)",   value="75", disabled=not is_admin, key="pr_wd")
+    full_r    = pc3.text_input("Full Service (per kg ₱)", value="95", disabled=not is_admin, key="pr_fs")
     if is_admin:
         if st.button("💾 Save Pricing", type="primary", key="pr_save"):
             try:
@@ -1227,29 +1076,25 @@ def render_settings():
                     "Contact an Admin to update service pricing.</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # User management (admin only)
     if is_admin:
         st.markdown("<div class='ls-section-box'>", unsafe_allow_html=True)
         section_title("User Management")
         st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-        try:
-            conn = get_connection(); cur = conn.cursor()
-            cur.execute("SELECT id, username, role FROM users ORDER BY id")
-            users = cur.fetchall(); cur.close(); conn.close()
-        except mysql.connector.Error as e:
-            st.error(f"DB error: {e}")
-            st.markdown("</div>", unsafe_allow_html=True)
-            return
+        conn = get_connection(); cur = conn.cursor()
+        cur.execute("SELECT id, username, role FROM users ORDER BY id")
+        users = cur.fetchall(); cur.close(); conn.close()
 
-        for uid, uname, urole in users:
+        for u_row in users:
+            uid   = u_row["id"]; uname = u_row["username"]; urole = u_row["role"]
             is_self  = uname == user
             role_cls = "badge-admin" if urole == "Admin" else "badge-staff"
-            ca, cb   = st.columns([5, 1])
+            grad = "var(--accent),var(--accent2)" if urole == "Admin" else "var(--accent2),var(--accent)"
+            ca, cb = st.columns([5, 1])
             ca.markdown(f"""
             <div style='background:var(--surf2);border:1px solid var(--border);border-radius:12px;
                         padding:10px 16px;display:flex;align-items:center;gap:12px'>
                 <div style='width:36px;height:36px;border-radius:50%;flex-shrink:0;
-                            background:linear-gradient(135deg,{"var(--accent),var(--accent2)" if urole=="Admin" else "var(--accent2),var(--accent)"});
+                            background:linear-gradient(135deg,{grad});
                             display:flex;align-items:center;justify-content:center;
                             font-weight:800;font-size:13px;color:#fff'>
                     {uname[0].upper()}
@@ -1269,13 +1114,10 @@ def render_settings():
                 st.warning(f"Delete user **{uname}**?")
                 y2, n2, _ = st.columns([1, 1, 5])
                 if y2.button("Delete", key=f"ydu_{uid}", type="primary"):
-                    try:
-                        conn2 = get_connection(); cur2 = conn2.cursor()
-                        cur2.execute("DELETE FROM users WHERE id=%s", (uid,))
-                        conn2.commit(); cur2.close(); conn2.close()
-                        st.session_state.pop(f"cdelu_{uid}", None); st.rerun()
-                    except mysql.connector.Error as e:
-                        st.error(f"DB error: {e}")
+                    conn2 = get_connection(); cur2 = conn2.cursor()
+                    cur2.execute("DELETE FROM users WHERE id=?", (uid,))
+                    conn2.commit(); cur2.close(); conn2.close()
+                    st.session_state.pop(f"cdelu_{uid}", None); st.rerun()
                 if n2.button("Cancel", key=f"ndu_{uid}"):
                     st.session_state.pop(f"cdelu_{uid}", None); st.rerun()
 
