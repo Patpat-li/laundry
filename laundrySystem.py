@@ -312,23 +312,21 @@ def section_title(text):
     st.markdown(f"<div class='ls-section-title'>{text}</div>", unsafe_allow_html=True)
 
 def brand_logo(size=36):
-    return f"""
-    <div style='display:inline-flex;align-items:center;justify-content:center;
-                width:{size}px;height:{size}px;border-radius:10px;
-                background:linear-gradient(135deg,#4B8BFF,#8B5CF6);'>
-      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'
-           width='{int(size*0.55)}' height='{int(size*0.55)}'
-           fill='none' stroke='white' stroke-width='2'
-           stroke-linecap='round' stroke-linejoin='round'>
-        <rect x='2' y='3' width='20' height='18' rx='3'/>
-        <circle cx='12' cy='13' r='4'/>
-        <circle cx='12' cy='13' r='1.5' fill='white' stroke='none'/>
-        <line x1='2' y1='8' x2='22' y2='8'/>
-        <circle cx='6' cy='5.5' r='1' fill='white' stroke='none'/>
-        <circle cx='9.5' cy='5.5' r='1' fill='white' stroke='none' opacity='0.6'/>
-      </svg>
-    </div>
-    """
+    s = int(size * 0.55)
+    return (
+        f"<div style='display:inline-flex;align-items:center;justify-content:center;"
+        f"width:{size}px;height:{size}px;border-radius:10px;"
+        f"background:linear-gradient(135deg,#4B8BFF,#8B5CF6);flex-shrink:0'>"
+        f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='{s}' height='{s}'"
+        f" fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+        f"<rect x='2' y='3' width='20' height='18' rx='3'/>"
+        f"<circle cx='12' cy='13' r='4'/>"
+        f"<circle cx='12' cy='13' r='1.5' fill='white' stroke='none'/>"
+        f"<line x1='2' y1='8' x2='22' y2='8'/>"
+        f"<circle cx='6' cy='5.5' r='1' fill='white' stroke='none'/>"
+        f"<circle cx='9.5' cy='5.5' r='1' fill='white' stroke='none' opacity='0.6'/>"
+        f"</svg></div>"
+    )
 
 def get_notifications():
     notes = []
@@ -360,23 +358,23 @@ def render_auth():
         st.markdown("<br><br>", unsafe_allow_html=True)
         mode = st.session_state.auth_mode
 
-        st.markdown(f"""
-        <div style='text-align:center;margin-bottom:32px'>
-            <div style='display:inline-flex;align-items:center;gap:14px;
-                        background:var(--surf);border:1px solid var(--border);
-                        border-radius:18px;padding:16px 26px;'>
-                {brand_logo(48)}
-                <div style='text-align:left'>
-                    <div style='font-size:22px;font-weight:700;
-                                background:linear-gradient(135deg,#4B8BFF,#C084FC);
-                                -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-                                letter-spacing:-0.3px;font-family:"DM Sans",sans-serif'>LaundroSoft</div>
-                    <div style='font-size:11px;color:var(--muted);font-weight:500;
-                                letter-spacing:2px;font-family:"Space Mono",monospace'>POINT OF SALE</div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        logo_html = brand_logo(48)
+        st.markdown(
+            "<div style='text-align:center;margin-bottom:32px'>"
+            "<div style='display:inline-flex;align-items:center;gap:14px;"
+            "background:var(--surf);border:1px solid var(--border);"
+            "border-radius:18px;padding:16px 26px;'>"
+            + logo_html +
+            "<div style='text-align:left'>"
+            "<div style='font-size:22px;font-weight:700;"
+            "background:linear-gradient(135deg,#4B8BFF,#C084FC);"
+            "-webkit-background-clip:text;-webkit-text-fill-color:transparent;"
+            "letter-spacing:-0.3px'>LaundroSoft</div>"
+            "<div style='font-size:11px;color:#6B7599;font-weight:500;"
+            "letter-spacing:2px'>POINT OF SALE</div>"
+            "</div></div></div>",
+            unsafe_allow_html=True,
+        )
 
         title    = "Create account" if mode == "register" else "Welcome back 👋"
         subtitle = "Register a new LaundroSoft account" if mode == "register" else "Sign in to your workspace"
@@ -448,27 +446,25 @@ def render_sidebar():
     role = st.session_state.role
 
     with st.sidebar:
-        st.markdown(f"""
-        <div style='padding:24px 20px 12px'>
-            <div style='display:flex;align-items:center;gap:12px;margin-bottom:22px'>
-                {brand_logo(40)}
-                <div>
-                    <div style='font-size:15px;font-weight:700;
-                                background:linear-gradient(135deg,#4B8BFF,#C084FC);
-                                -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-                                font-family:"DM Sans",sans-serif'>LaundroSoft</div>
-                    <div style='font-size:9px;color:var(--dim);font-weight:600;
-                                letter-spacing:1.8px;font-family:"Space Mono",monospace'>POS SYSTEM</div>
-                </div>
-            </div>
-            <div style='height:1px;background:linear-gradient(90deg,var(--border),transparent);
-                        margin-bottom:18px'></div>
-            <div style='font-size:9px;color:var(--dim);letter-spacing:2.5px;font-weight:700;
-                        font-family:"Space Mono",monospace;margin-bottom:10px;padding-left:2px'>
-                NAVIGATE
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        logo_sb = brand_logo(40)
+        st.markdown(
+            "<div style='padding:24px 20px 12px'>"
+            "<div style='display:flex;align-items:center;gap:12px;margin-bottom:22px'>"
+            + logo_sb +
+            "<div>"
+            "<div style='font-size:15px;font-weight:700;"
+            "background:linear-gradient(135deg,#4B8BFF,#C084FC);"
+            "-webkit-background-clip:text;-webkit-text-fill-color:transparent'>LaundroSoft</div>"
+            "<div style='font-size:9px;color:#3A4060;font-weight:600;"
+            "letter-spacing:1.8px'>POS SYSTEM</div>"
+            "</div></div>"
+            "<div style='height:1px;background:linear-gradient(90deg,#1E2540,transparent);"
+            "margin-bottom:18px'></div>"
+            "<div style='font-size:9px;color:#3A4060;letter-spacing:2.5px;font-weight:700;"
+            "margin-bottom:10px;padding-left:2px'>NAVIGATE</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
         nav = [
             ("dashboard", "📊", "Dashboard"),
