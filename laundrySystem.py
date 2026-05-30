@@ -430,14 +430,6 @@ def render_auth():
             if st.button("Already have an account? Sign in", use_container_width=True, key="go_login"):
                 st.session_state.auth_mode = "login"; st.rerun()
 
-        st.markdown("""
-        <div style='text-align:center;margin-top:24px;color:var(--dim);font-size:11px;
-                    font-family:"Space Mono",monospace'>
-            default&nbsp;·&nbsp;<span style='color:var(--accent)'>admin</span>
-            &nbsp;/&nbsp;<span style='color:var(--accent)'>admin123</span>
-        </div>
-        """, unsafe_allow_html=True)
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
