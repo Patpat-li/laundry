@@ -107,10 +107,11 @@ def inject_css():
     [data-testid="stSidebarContent"] { padding: 0 !important; }
     [data-testid="stSidebar"] * { font-family: 'DM Sans', sans-serif !important; }
 
+    /* ── unified sidebar nav buttons ── */
     [data-testid="stSidebar"] .stButton > button {
         background: transparent !important;
         color: var(--muted) !important;
-        border: none !important;
+        border: 1px solid transparent !important;
         border-radius: 10px !important;
         font-size: 13px !important;
         font-weight: 500 !important;
@@ -118,10 +119,23 @@ def inject_css():
         padding: 10px 14px !important;
         width: 100% !important;
         transition: all 0.15s ease !important;
+        margin: 1px 0 !important;
     }
     [data-testid="stSidebar"] .stButton > button:hover {
-        background: rgba(75,139,255,0.1) !important;
+        background: rgba(75,139,255,0.08) !important;
         color: var(--accent) !important;
+        border-color: rgba(75,139,255,0.15) !important;
+    }
+    /* active nav item styling via wrapper class */
+    [data-testid="stSidebar"] .nav-active .stButton > button {
+        background: rgba(75,139,255,0.1) !important;
+        border-color: rgba(75,139,255,0.22) !important;
+        color: var(--accent) !important;
+        font-weight: 700 !important;
+    }
+    /* nav item padding container */
+    [data-testid="stSidebar"] .nav-item {
+        padding: 0 12px !important;
     }
 
     [data-testid="stMain"] .block-container {
@@ -468,19 +482,12 @@ def render_sidebar():
         current = st.session_state.view
         for key, icon, label in nav:
             is_active = current == key
-            if is_active:
-                st.markdown(f"""
-                <div style='background:rgba(75,139,255,0.1);border:1px solid rgba(75,139,255,0.22);
-                            border-radius:10px;padding:10px 14px;margin:2px 16px;
-                            font-size:13px;font-weight:600;color:var(--accent)'>
-                    {icon}&nbsp;&nbsp;{label}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                _, col_btn = st.columns([0.06, 0.94])
-                with col_btn:
-                    if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
-                        st.session_state.view = key; st.rerun()
+            active_class = "nav-active" if is_active else "nav-inactive"
+            st.markdown(f"<div class='nav-item {active_class}'>", unsafe_allow_html=True)
+            if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
+                st.session_state.view = key
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<br><br>", unsafe_allow_html=True)
         badge_cls = "badge-admin" if role == "Admin" else "badge-staff"
